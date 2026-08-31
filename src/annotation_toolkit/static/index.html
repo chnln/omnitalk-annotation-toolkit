@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta name="theme-color" content="#177c69">
+    <meta name="description" content="OmniTalk local video annotation workspace. Mark clips, add notes, and export JSON.">
+    <title>OmniTalk · Clip annotation</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23177c69'/%3E%3Cpath d='M10 17v6m7-13v20m7-17v14m7-10v6' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="./styles.css">
+    <link id="downloads-styles" rel="stylesheet" href="./downloads.css">
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body data-mode="local">
+    <svg class="icon-definitions" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z"/></symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+        <symbol id="i-link" viewBox="0 0 24 24"><path d="m10 13 4-4m-6 7-1 1a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0m0 12a4 4 0 0 0 6 0l5-5a4 4 0 0 0-6-6l-1 1" transform="translate(0 1) scale(.9)"/></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 15v5h16v-5"/></symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m-5 5 5-5 5 5M4 15v5h16v-5"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+        <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="m10 9 5 3-5 3Z"/></symbol>
+        <symbol id="i-external" viewBox="0 0 24 24"><path d="M13 4h7v7m0-7L10 14m-1-9H4v15h15v-5"/></symbol>
+        <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="m8 8 12 12M8 16 20 4"/></symbol>
+        <symbol id="i-edit" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l5-1L21 7l-5-5L4 14Z"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+        <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-1.5 1-1.5 1-1.5 3m0 3h.01"/></symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V4h6l3 3h9v13H3Z"/></symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Z"/><path d="m8 12 3 3 5-6"/></symbol>
+        <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4Z"/></symbol>
+      </defs>
+    </svg>
+
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="OmniTalk workspace">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span>omnitalk<span class="brand-period">.</span></span>
+        <span class="brand-caption">ANNOTATION TOOLKIT</span>
+      </a>
+      <div class="topbar-actions">
+        <span class="save-status" id="save-status" role="status"><span class="status-dot"></span>Local autosave</span>
+        <button class="button secondary" id="import-button"><svg class="icon"><use href="#i-upload"/></svg><span>Import JSON</span></button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+        <button class="button primary" id="export-button"><svg class="icon"><use href="#i-download"/></svg><span>Export JSON</span></button>
+        <button class="icon-button help-button" id="help-button" aria-label="Help"><svg class="icon"><use href="#i-help"/></svg></button>
+      </div>
+    </header>
+
+    <div id="browser-demo-notice" class="browser-demo-notice" role="note" hidden>
+      <span><strong>Browser edition</strong> · Annotate and export JSON here. Video downloads require the local app. Your annotations stay in this browser.</span>
+      <a href="https://github.com/chnln/omnitalk-annotation-toolkit#run-locally" target="_blank" rel="noopener noreferrer">Local setup ↗</a>
+    </div>
+    <div class="app-layout">
+      <aside class="sidebar" id="library-sidebar" aria-label="Project and video library">
+        <div class="workspace-label"><span>WORKSPACE</span><span class="local-pill"><span class="status-dot"></span>LOCAL</span><button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-expanded="true" aria-controls="sidebar-content" aria-label="Collapse video library" title="Collapse video library"><svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg><span class="sidebar-toggle-text">Library</span></button></div>
+        <div class="sidebar-content" id="sidebar-content">
+        <label class="project-field" for="project-name"><svg class="icon"><use href="#i-folder"/></svg><input id="project-name" aria-label="Project name" maxlength="200" value="OmniTalk corpus"></label>
+        <div class="sidebar-divider"></div>
+        <div class="library-heading"><h2>Video library <span id="video-count" class="count-pill">0</span></h2><button class="icon-button" id="add-video-focus" aria-label="Add video"><svg class="icon"><use href="#i-plus"/></svg></button></div>
+        <nav id="video-list" class="video-list" aria-label="Video list"></nav>
+        <div class="library-empty" id="library-empty"><svg class="icon"><use href="#i-video"/></svg><p>Collect conversations<br>worth studying.</p><span>Paste a link to add your first video</span></div>
+        <div class="sidebar-bottom">
+          <div class="privacy-note"><svg class="icon"><use href="#i-shield"/></svg><div><strong>Stays on your computer</strong><p>Annotations stay local. You choose how to share your exports.</p></div></div>
+          <div class="participant-card">
+            <div class="participant-heading"><span class="avatar" id="participant-avatar">A</span><div><strong>Annotator</strong><span>No sign-up or login</span></div></div>
+            <label for="annotator-id">Annotator ID <span class="optional">Optional</span></label><input id="annotator-id" placeholder="e.g. P001" maxlength="200" autocomplete="off" aria-describedby="annotator-help">
+            <label for="annotator-name">Display name <span class="optional">Optional</span></label><input id="annotator-name" placeholder="Your name or nickname" maxlength="200" autocomplete="off">
+            <p class="annotator-help" id="annotator-help">Labels the annotator in this project's JSON export. It is not an account and does not affect downloads.</p>
+          </div>
+          <span class="sidebar-version">OmniTalk Research · v0.1</span>
+        </div>
+        </div>
+      </aside>
+
+      <main>
+        <div class="page-heading">
+          <div><div class="eyebrow">COLLECT. LISTEN. ANNOTATE.</div><h1>Clip annotation<span class="heading-dot">.</span></h1><p>Turn full videos into meaningful research clips.</p></div>
+          <div class="workspace-stats"><span><strong id="total-clips">00</strong>Saved clips</span><span><strong id="total-duration">00:00</strong>Total clip duration</span></div>
+        </div>
+        <div class="storage-warning" id="storage-warning" role="alert" hidden><span id="storage-warning-text"></span><button class="text-button" id="recover-storage" hidden>Download original draft</button></div>
+        <section class="source-loader" aria-label="Load a YouTube video">
+          <form id="source-form"><div class="url-field"><svg class="icon"><use href="#i-link"/></svg><input id="source-url" aria-label="YouTube video link" placeholder="Paste a YouTube video link…" autocomplete="off" spellcheck="false" required></div><button type="submit" class="button primary">Load video<svg class="icon"><use href="#i-arrow"/></svg></button></form>
+          <div class="source-helper"><span>Supports video links, short links, Shorts, and video IDs</span><button type="button" class="text-button" id="load-example">Try an example <span aria-hidden="true">↗</span></button></div>
+          <p class="field-error" id="source-error" role="alert" hidden></p>
+        </section>
+
+        <div class="annotation-grid">
+          <section class="video-card" aria-labelledby="video-section-heading">
+            <div class="video-card-heading"><div class="video-heading-label"><span class="youtube-mark"><svg class="icon"><use href="#i-play"/></svg></span><h2 id="video-section-heading">Video workspace</h2></div><a id="source-link" class="subtle-link" target="_blank" rel="noopener" hidden>Original video<svg class="icon"><use href="#i-external"/></svg></a></div>
+            <div class="player-stage" id="player-stage">
+              <div class="video-empty" id="video-empty"><span class="preview-eyebrow">A SPACE FOR CLOSE LISTENING</span><span class="empty-play"><svg class="icon"><use href="#i-play"/></svg></span><h3>Every conversation is worth a closer listen.</h3><p>Load a video to start your first annotation</p><span class="empty-corner top-left"></span><span class="empty-corner bottom-right"></span></div>
+              <div id="youtube-mount" hidden><div id="youtube-player"></div></div>
+            </div>
+            <div class="video-meta"><input id="video-title" aria-label="Video title" placeholder="Give this video a title after loading" maxlength="500" disabled><span class="video-source-badge">YouTube</span></div>
+            <div class="player-notice" id="player-notice" role="status" hidden><span id="player-notice-text"></span><button class="text-button" id="retry-player" hidden>Retry</button></div>
+            <div class="transport">
+              <div class="transport-controls"><div class="playback-buttons"><button class="play-toggle icon-button" id="play-toggle" aria-label="Play" disabled><svg class="icon"><use href="#i-play"/></svg></button><button class="skip-button" id="seek-back" aria-label="Back 5 seconds" disabled>−5s</button><button class="skip-button" id="seek-forward" aria-label="Forward 5 seconds" disabled>+5s</button><span class="playback-time"><span id="current-time">00:00.000</span><span class="time-divider">/</span><span id="video-duration">--:--</span></span></div><label class="speed-control" for="playback-rate"><span class="sr-only">Playback speed</span><select id="playback-rate" disabled><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label></div>
+              <input type="range" id="seek-range" min="0" max="1" value="0" step="0.01" aria-label="Video progress" disabled>
+              <div class="clip-timeline" id="clip-timeline" aria-label="Annotated ranges"></div>
+              <div class="timeline-labels"><span>00:00</span><span id="timeline-middle">--:--</span><span id="timeline-end">--:--</span></div>
+            </div>
+            <div class="video-card-footer"><span class="status-dot muted"></span><span id="player-footnote">Playback needs internet · Times can also be entered manually</span><button class="text-button keyboard-help" id="keyboard-help">Shortcuts <kbd>?</kbd></button></div>
+          </section>
+
+          <section class="editor-card" aria-labelledby="editor-heading">
+            <div class="editor-header"><span class="section-kicker">THE SMALL MOMENTS MATTER</span><div><h2 id="editor-heading"><svg class="icon"><use href="#i-scissors"/></svg><span id="editor-title">New clip</span></h2><button class="text-button" id="cancel-edit" hidden>Cancel editing</button></div><p>Mark a conversation worth keeping.</p></div>
+            <form id="clip-form">
+              <fieldset id="clip-fields" disabled>
+                <div class="time-field"><div class="field-label"><label for="clip-start">Start time <kbd>I</kbd></label><button type="button" class="capture-button" id="capture-start" disabled>Use current</button></div><input id="clip-start" class="time-input" placeholder="00:00.000" autocomplete="off" spellcheck="false" required></div>
+                <div class="time-field"><div class="field-label"><label for="clip-end">End time <kbd>O</kbd></label><button type="button" class="capture-button" id="capture-end" disabled>Use current</button></div><input id="clip-end" class="time-input" placeholder="00:00.000" autocomplete="off" spellcheck="false" required></div>
+                <div class="selection-duration"><svg class="icon"><use href="#i-clock"/></svg><span>Clip duration</span><strong id="selection-duration">Select a range</strong><button type="button" class="icon-button" id="preview-draft" aria-label="Preview current range" disabled><svg class="icon"><use href="#i-play"/></svg></button></div>
+                <label for="clip-note" class="form-label">Note <span class="optional">Optional</span></label><textarea id="clip-note" rows="4" maxlength="20000" placeholder="Speakers, interaction, or why this conversation is worth keeping…"></textarea>
+                <label for="clip-tags" class="form-label">Tags <span class="optional">Optional, comma-separated</span></label><input id="clip-tags" maxlength="1200" placeholder="e.g. group conversation, overlapping speech">
+                <p class="field-error" id="clip-error" role="alert" hidden></p>
+                <button class="button primary save-clip" type="submit" id="save-clip"><svg class="icon"><use href="#i-plus"/></svg><span id="save-clip-label">Add clip</span><kbd>⌘ ↵</kbd></button>
+                <p class="editor-hint">Enter seconds or <span class="mono">mm:ss.sss</span></p>
+              </fieldset>
+            </form>
+          </section>
+        </div>
+
+        <section class="clips-card" aria-labelledby="clips-heading">
+          <div class="clips-heading"><div><h2 id="clips-heading">Clips <span class="count-pill" id="clip-count">0</span></h2><p id="clips-description">Load a video, then add clips to this list.</p></div><div class="clips-actions"><label class="clip-search"><svg class="icon"><use href="#i-search"/></svg><input id="clips-search" placeholder="Search notes or tags" aria-label="Search notes or tags"></label><button class="button secondary" id="download-all-clips" type="button" disabled><svg class="icon"><use href="#i-download"/></svg>Download all</button></div></div>
+          <div class="clips-empty" id="clips-empty"><span class="empty-bookmark"><svg class="icon"><use href="#i-bookmark"/></svg></span><h3>Your corpus starts with the first clip</h3><p>Mark the start and end, add your observations, then click Add clip.</p><span class="empty-step"><kbd>I</kbd><span>Mark start</span><span class="step-dash"></span><kbd>O</kbd><span>Mark end</span></span></div>
+          <div class="table-scroll" id="clips-table-container" hidden><table><thead><tr><th scope="col">Clip</th><th scope="col">Time range</th><th scope="col">Note</th><th scope="col">Tags</th><th scope="col" class="actions-heading">Actions</th></tr></thead><tbody id="clips-body"></tbody></table></div>
+          <div class="no-results" id="no-results" hidden>No matching clips. Try another search.</div>
+          <div class="clips-footer"><svg class="icon"><use href="#i-check"/></svg><span>Clips, notes, and tags are annotations. Saved in this browser; Export JSON creates a file.</span><span class="json-badge">.json</span></div>
+        </section>
+        <footer class="page-footer"><span>A quiet workspace for careful observation.</span><span>LOCAL FIRST. HUMAN ANNOTATED.</span></footer>
+      </main>
+    </div>
+
+    <dialog id="help-dialog" class="help-dialog"><div class="dialog-heading"><div><div class="eyebrow">A LITTLE FIELD GUIDE</div><h2>Start building your corpus</h2></div><button class="icon-button" id="close-help" aria-label="Close help"><svg class="icon"><use href="#i-close"/></svg></button></div><ol class="help-steps"><li><strong>Optionally enter an annotator ID, then paste a video link.</strong><p>The ID labels this project in your exported JSON; it does not create an account. Clip ranges, notes, and tags are your annotations.</p></li><li><strong>Play, mark, and record your observations.</strong><p>Click “Use current” or enter seconds or mm:ss.sss. Click Add clip to place it in the list below. Each video has its own clips and unfinished draft; switch videos in the library.</p></li><li><strong>Export JSON to share with your project lead.</strong><p>Exports save a JSON file through the local server. The dialog shows its location. Import the file to continue annotating.</p></li></ol><div class="shortcut-grid"><span><kbd>Space</kbd>Play / pause</span><span><kbd>I</kbd>Mark start</span><span><kbd>O</kbd>Mark end</span><span><kbd>⌘ / Ctrl ↵</kbd>Add clip</span></div><p class="help-note">Shortcuts work outside text fields. If the YouTube player has focus, click elsewhere on this page first. The save shortcut also works inside clip fields.</p><div class="help-details"><p><strong>Local storage: </strong>Annotations and unfinished drafts are saved in this browser’s localStorage. Storage is separate for each browser, host, and port; clearing browser data removes it. Export regularly, and avoid editing the same project in multiple tabs.</p><p><strong>YouTube limitations: </strong>Videos need internet access and must allow embedding. The page has no comments or recommendation sidebar, but YouTube controls the player’s branding, ads, and end recommendations. You can still enter times manually if playback fails. Times are stored to milliseconds, without a guarantee of frame accuracy.</p><p><strong>Audio and subtitles: </strong>Use Download video for the full video, a clip row for one clip, or Download all for all clips of the selected video. Choose a save folder before starting. Video downloads include source audio. Audio-only extraction and subtitle import are not implemented yet.</p></div></dialog>
+    <dialog id="confirm-dialog" class="confirm-dialog"><h2 id="confirm-title"></h2><p id="confirm-message"></p><div class="dialog-actions"><button class="button secondary" id="confirm-cancel">Cancel</button><button class="button primary" id="confirm-accept">Confirm</button></div></dialog>
+    <dialog id="export-dialog" class="export-dialog">
+      <div class="dialog-heading"><div><div class="eyebrow">READY TO SHARE</div><h2>Export annotations</h2></div><button class="icon-button" id="close-export" aria-label="Close export"><svg class="icon"><use href="#i-close"/></svg></button></div>
+      <p id="export-feedback" class="export-feedback" role="status"></p>
+      <div id="export-path-container" hidden><label for="export-path" class="form-label">Saved file</label><input id="export-path" class="mono" readonly><button class="text-button" id="copy-export-path">Copy path</button></div>
+      <p class="export-help">Only saved clips are included. Video files are downloaded separately.</p>
+      <div class="dialog-actions"><button class="button secondary" id="copy-export-json">Copy JSON</button><button class="button secondary" id="download-export-copy"><svg class="icon"><use href="#i-download"/></svg>Download a copy</button><button class="button primary" id="done-export">Done</button></div>
+    </dialog>
+    <div class="toast" id="toast" role="status" hidden><svg class="icon"><use href="#i-check"/></svg><span id="toast-message"></span></div>
+    <noscript><div class="noscript">JavaScript is required to load the player and save annotations. Enable it and refresh this page.</div></noscript>
+  </body>
+</html>

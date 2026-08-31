@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "omnitalk-annotation-toolkit"
+version = "0.1.0"
+description = "A local video clip annotation workspace for OmniTalk"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "yt-dlp[default]>=2026.8.19",
+]
+
+[project.scripts]
+annotation-toolkit = "annotation_toolkit.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/annotation_toolkit"]

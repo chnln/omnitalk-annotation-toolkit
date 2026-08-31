@@ -1,0 +1,84 @@
+/* Download controls share the workspace palette; all new rules stay scoped. */
+.video-card-heading:has(.download-video-button){gap:12px;min-height:53px;height:auto;flex-wrap:wrap}
+.video-card-heading:has(.download-video-button) .video-heading-label{margin-right:auto}
+.download-video-button{font-size:10px;padding:5px 9px;line-height:18px}
+.download-dialog{width:min(570px,calc(100vw - 36px));max-height:calc(100dvh - 40px);overflow:auto;padding:27px;color:var(--text)}
+.download-dialog-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.download-dialog-heading h2{font-size:21px;letter-spacing:-.35px}
+.download-dialog-heading .icon-button{font-size:24px;line-height:1}
+.download-source-title{font-size:12px;color:#75858a;margin:10px 0 22px;overflow-wrap:anywhere}
+.download-batch-summary{font-size:12px;line-height:1.8;color:#668375;border:1px solid #dcebe2;background:#f1f8f4;padding:12px 14px;border-radius:8px;margin-bottom:17px}
+.download-scope legend{font-size:11px;font-weight:600;margin-bottom:9px;color:#64747a}
+.download-scope{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.download-scope label{display:flex;gap:9px;align-items:flex-start;border:1px solid #e1e8e5;border-radius:8px;padding:13px 11px;cursor:pointer;background:#fff}
+.download-scope label:has(input:checked){background:var(--green-wash);border-color:#93bba9}
+.download-scope input{width:15px;height:15px;padding:0;box-shadow:none;margin:3px 0 0;accent-color:var(--green);flex-shrink:0}
+.download-scope strong{display:block;font-size:12px;font-weight:600;color:#50695f}
+.download-scope small{display:block;font-size:10px;color:#8c9a93;line-height:1.5;margin-top:3px}
+.download-range{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:17px}
+.download-range label,.download-setup label{display:block;font-size:11px;color:#75847d;margin-bottom:6px}
+.download-range input{font-family:var(--mono);font-size:13px}
+.download-range p{grid-column:1/-1;font-size:10px;color:#8d9a95}
+.download-quality{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:8px 12px;margin-top:18px}
+.download-quality label{font-size:11px;font-weight:600;color:#64747a}
+.download-quality select{border:1px solid #dfe7e2;border-radius:6px;padding:8px 10px;background:white;font-size:11px;min-width:0;color:#60766a;cursor:pointer}
+.download-quality p{grid-column:1/-1;font-size:10px;color:#8d9a95;line-height:1.6}
+.download-format-note{font-size:10px;line-height:1.7;color:#929c98;margin:15px 0}
+.download-setup{padding:14px;background:#f8faf9;border:1px solid #e6ece9;border-radius:8px}
+.download-setup-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.download-setup-heading strong{font-size:11px;color:#63786e;font-weight:600}
+.download-setup-heading .text-button{font-size:10px}
+.download-setup p{font-size:11px;color:#86958e;line-height:1.7;margin-top:6px}
+.download-setup a{color:var(--green);text-decoration:underline;text-underline-offset:3px}
+.download-setup code{font-family:var(--mono);font-size:10px;background:#edf2ef;padding:1px 4px;border-radius:3px}
+.download-setup label{margin-top:12px;font-size:10px}
+.download-setup input{font-family:var(--mono);font-size:10px;background:white;padding:8px 9px;color:#809087;border-color:#e1e7e3}
+.download-required{font-size:9px;font-weight:400;color:#a1aaa5;margin-left:4px}
+.download-folder-actions{display:flex;align-items:center;gap:13px;margin-top:9px}
+.download-folder-actions .button{font-size:10px;padding:5px 10px}
+.download-folder-actions .text-button{font-size:10px}
+.download-setup #download-folder-status{color:var(--green);font-size:10px}
+.download-setup .download-default-explanation{font-size:10px;color:#95a298}
+.download-permission-note{font-size:11px;color:#8d9976;padding:12px 0 0}
+.download-dialog-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:21px}
+.download-dialog-actions .button{font-size:12px}
+.downloads-card{background:var(--paper);border:1px solid var(--line);border-radius:10px;margin-top:23px;overflow:hidden;min-width:0}
+.downloads-heading{display:flex;align-items:center;justify-content:space-between;padding:20px 23px 17px;gap:18px}
+.downloads-heading h2{font-size:14px}
+.downloads-heading p{font-size:10px;color:#98a59e;margin-top:5px}
+.downloads-heading .text-button{font-size:10px}
+.downloads-refresh-controls{display:flex;flex-direction:column;align-items:flex-end;gap:5px;min-width:108px;flex-shrink:0}
+.downloads-last-checked{font-family:var(--mono);font-size:8px;color:#a3afa8;white-space:nowrap}
+.downloads-refresh-feedback{font-size:10px;color:var(--green);padding:0 23px 12px}
+.downloads-connection-notice{margin:0 23px 14px;background:#fff6e7;border:1px solid #efe1c6;border-radius:6px;padding:9px 11px;color:#997942;font-size:11px}
+.download-job{border-top:1px solid #edf1ef;padding:16px 23px}
+.download-job-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.download-job h3{font-size:12px;font-weight:550;overflow-wrap:anywhere;min-width:0}
+.download-status{font-size:9px;white-space:nowrap;flex-shrink:0;background:#f0f3f2;color:#8c9993;border-radius:4px;padding:3px 7px}
+.download-status.downloading,.download-status.processing{background:#f6f1e6;color:#a58a50}
+.download-status.completed{background:var(--green-wash);color:var(--green)}
+.download-status.failed{background:#fcf0ed;color:#b7705f}
+.download-job-detail{font-family:var(--mono);font-size:10px;color:#a0aaa5;margin-top:5px}
+.download-job-resolution{font-family:var(--mono);font-size:10px;color:#6e8b7b;margin-top:5px}
+.download-progress-row{display:flex;align-items:center;gap:11px;margin-top:12px}
+.download-progress{display:block;appearance:none;flex:1;min-width:0;border:0;border-radius:5px;overflow:hidden;height:5px;background:#edf2ef;color:var(--green);accent-color:var(--green)}
+.download-progress::-webkit-progress-bar{background:#edf2ef;border-radius:5px}
+.download-progress::-webkit-progress-value{background:#77b39e;border-radius:5px}
+.download-progress::-moz-progress-bar{background:#77b39e;border-radius:5px}
+.download-progress:not([value]){background:repeating-linear-gradient(90deg,#edf2ef 0 18px,#c6dacf 18px 36px)}
+.download-progress-row span{font-family:var(--mono);font-size:10px;color:#99a69e;min-width:36px;text-align:right}
+.download-job-message{font-size:10px;color:#9ba69f;margin-top:7px;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.7}
+.download-job-message.failed{color:#b57260}
+.download-job-destination{font-family:var(--mono);font-size:9px;color:#97a59c;margin-top:7px;overflow-wrap:anywhere}
+.download-saved-path{display:flex;align-items:center;gap:8px;margin-top:11px}
+.download-saved-path input{font-family:var(--mono);font-size:10px;color:#7e9187;padding:7px 9px;background:#fbfdfc;border-color:#e5ece8}
+.download-saved-path .button{font-size:10px;padding:5px 9px;line-height:18px}
+.downloads-footer{font-size:9px;color:#a3afa8;border-top:1px solid #edf1ef;padding:11px 23px;line-height:1.7}
+.downloads-show-more{display:block;margin:0 auto 15px;font-size:11px}
+@media(max-width:720px){.downloads-heading,.download-job{padding-left:17px;padding-right:17px}.downloads-connection-notice{margin-left:17px;margin-right:17px}.download-dialog{padding:22px}.download-scope{gap:8px}.download-scope label{padding:11px 9px}.downloads-heading p{font-size:9px}.downloads-footer{padding-left:17px;padding-right:17px}.download-job-heading{gap:8px}.download-job h3{font-size:11px}.download-dialog-actions .button{padding:9px 12px}}
+.browser-demo-notice{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 28px;background:#edf6f2;color:#3a6757;border-bottom:1px solid #d7e7de;font-size:12px;line-height:1.6}
+.browser-demo-notice[hidden]{display:none}
+.browser-demo-notice a{color:#177c69;white-space:nowrap;font-weight:600}
+.browser-download-steps{padding-left:22px;font-size:13px;line-height:1.8;color:#586c63}
+.browser-download-steps li+li{margin-top:8px}
+@media(max-width:700px){.browser-demo-notice{align-items:flex-start;padding:12px 18px;flex-direction:column;gap:4px}}
