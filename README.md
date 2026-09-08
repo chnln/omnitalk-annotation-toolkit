@@ -88,7 +88,7 @@ Download only content you have permission to use. The toolkit does not import lo
 
 ## Annotation JSON schema
 
-The current format is **schema `1.1`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.1.0`. The English interface accepts Unicode text in names, notes, and tags.
+The current format is **schema `1.1`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.2.0`. The English interface accepts Unicode text in names, notes, and tags.
 
 ### Project fields
 
