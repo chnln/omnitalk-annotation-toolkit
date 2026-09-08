@@ -1,5 +1,5 @@
 /** Pure annotation data helpers. No network, storage, or DOM access. */
-export const SCHEMA_VERSION = "1.0";
+export const SCHEMA_VERSION = "1.1";
 export const STORAGE_KEY = "omnitalk.annotation.project.v1";
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
@@ -125,7 +125,7 @@ export function createClip(input, duration_seconds = null) {
   object(input, "Clip");
   const fields = clipFields(input, duration_seconds);
   const timestamp = now();
-  return { id: uuid(), ...fields, created_at: timestamp, updated_at: timestamp };
+  return { id: uuid(), ...fields, subtitle_status: "unknown", questions: [], created_at: timestamp, updated_at: timestamp };
 }
 
 function object(value, label) {
@@ -149,7 +149,7 @@ function timestamp(value, label) {
 /** Validate untrusted JSON and return only the supported schema, with fresh objects. */
 export function validateProject(data) {
   object(data, "Project");
-  if (data.schema_version !== SCHEMA_VERSION) throw new Error(`Unsupported file version. Expected schema_version: "${SCHEMA_VERSION}".`);
+  if (!["1.0", SCHEMA_VERSION].includes(data.schema_version)) throw new Error(`Unsupported file version. Expected schema_version: "${SCHEMA_VERSION}".`);
   const ids = new Set();
   function recordId(value, label) {
     if (typeof value !== "string" || !UUID.test(value)) throw new Error(`${label} must be a valid UUID.`);
@@ -195,6 +195,7 @@ export function validateProject(data) {
         return {
           id: recordId(clip.id, "Clip ID"),
           ...clipFields(clip, duration),
+          ...validateClipQA(clip, data.schema_version, recordId),
           created_at: timestamp(clip.created_at, "Clip creation time"),
           updated_at: timestamp(clip.updated_at, "Clip update time"),
         };
@@ -202,4 +203,56 @@ export function validateProject(data) {
     };
   });
   return project;
+}
+
+
+/** Evidence taxonomy: broad sources first, optional specific cues second. */
+export const MODALITIES = {
+  audio: { label: "Audio", cues: { speech_content: "Speech content", prosody: "Prosody", environmental_sounds: "Environmental sounds" } },
+  visual: { label: "Visual", cues: { action_event: "Action / Event", gesture: "Gesture", facial_expression: "Facial expression", gaze: "Gaze", person_appearance: "Person / Appearance", object_scene: "Object / Scene" } },
+  text: { label: "Text", cues: { subtitles: "Subtitles", scene_text: "Scene text" } },
+};
+export const SUBTITLE_STATUSES = { unknown: "Not reviewed", none: "No subtitles", present: "With subtitles", masked: "Subtitle masked" };
+export function createQuestion() {
+  const time = now();
+  return { id: uuid(), prompt: "", options: [0, 1, 2].map(() => ({ id: uuid(), text: "" })), correct_option_id: null,
+    required_modalities: [], evidence_cues: [], rationale: "", status: "draft", created_at: time, updated_at: time };
+}
+export function questionReadyError(q) {
+  if (!q.prompt.trim()) return "Enter a question before marking it Ready.";
+  if (q.options.length < 2 || q.options.some(o => !o.text.trim())) return "Ready questions need at least two nonempty answer options.";
+  if (!q.options.some(o => o.id === q.correct_option_id)) return "Select the correct answer.";
+  if (!q.required_modalities.length) return "Select at least one required modality. Audio-only integration is allowed.";
+  return "";
+}
+export function validateQuestion(q, recordId = (value) => {
+  if (typeof value !== "string" || !UUID.test(value)) throw new Error("Question and option IDs must be UUIDs.");
+  return value.toLowerCase();
+}) {
+  object(q, "Question");
+  if (!["draft", "ready"].includes(q.status)) throw new Error("Question status must be draft or ready.");
+  if (!Array.isArray(q.options) || q.options.length > 26) throw new Error("A question supports up to 26 options.");
+  const id = recordId(q.id, "Question ID");
+  const options = q.options.map(o => { object(o, "Option"); return { id: recordId(o.id, "Option ID"), text: text(o.text, "Option", 5000) }; });
+  if (new Set(options.map(o => o.id)).size !== options.length) throw new Error("Duplicate option IDs.");
+  const correct = q.correct_option_id === null ? null : typeof q.correct_option_id === "string" ? q.correct_option_id.toLowerCase() : undefined;
+  if (correct !== null && !options.some(o => o.id === correct)) throw new Error("Correct answer must reference an existing option.");
+  const selection = (value, allowed, label) => {
+    if (!Array.isArray(value) || value.length > allowed.length || new Set(value).size !== value.length || value.some(v => !allowed.includes(v))) throw new Error(`Invalid ${label}.`);
+    return [...value];
+  };
+  const modalities = selection(q.required_modalities, Object.keys(MODALITIES), "required modalities");
+  const cues = selection(q.evidence_cues, modalities.flatMap(m => Object.keys(MODALITIES[m].cues)), "evidence cues or parent modality");
+  const result = { id, prompt: text(q.prompt, "Question", 10000), options, correct_option_id: correct,
+    required_modalities: modalities, evidence_cues: cues, rationale: text(q.rationale, "Rationale", 20000), status: q.status,
+    created_at: timestamp(q.created_at, "Question creation time"), updated_at: timestamp(q.updated_at, "Question update time") };
+  const error = questionReadyError(result);
+  if (result.status === "ready" && error) throw new Error(error);
+  return result;
+}
+function validateClipQA(clip, version, recordId) {
+  if (version === "1.0") return { subtitle_status: "unknown", questions: [] };
+  if (!Object.hasOwn(SUBTITLE_STATUSES, clip.subtitle_status)) throw new Error("Invalid clip subtitle status.");
+  if (!Array.isArray(clip.questions) || clip.questions.length > 100) throw new Error("A clip supports up to 100 questions.");
+  return { subtitle_status: clip.subtitle_status, questions: clip.questions.map(q => validateQuestion(q, recordId)) };
 }

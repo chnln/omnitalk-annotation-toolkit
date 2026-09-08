@@ -1,6 +1,6 @@
 # OmniTalk Annotation Toolkit
 
-A frontend toolkit for video clip annotation: load YouTube videos, mark time ranges, add notes and tags, and export portable JSON. Each participant can run it locally without renting a server or creating an account.
+A frontend toolkit for video clip annotation: load YouTube videos, mark time ranges, design multiple-choice questions with modality labels, and export portable JSON. Each participant can run it locally without renting a server or creating an account.
 
 **[Try the browser demo](https://chnln.github.io/omnitalk-annotation-toolkit/)** · **[Source code](https://github.com/chnln/omnitalk-annotation-toolkit)**
 
@@ -67,6 +67,14 @@ Playback shortcuts do not activate while typing. The save shortcut works inside 
 
 Deleting a library video requires confirmation and removes its clips and draft from the workspace. Downloaded files, previous JSON exports, and running downloads are unaffected.
 
+## Design questions
+
+1. Save a clip, then use the **Questions** panel or the clip row's **Design QA** button. The selected clip dropdown switches the question workspace independently of the range editor.
+2. Click **Add question**. Edit the prompt, add/remove answer options, and select the circle next to the correct answer. Each clip can contain multiple questions.
+3. Select **Audio**, **Visual**, and/or **Text**, then optional evidence cues. Turning off a parent modality also clears its cues. Record a short rationale if useful.
+4. Questions autosave immediately as **Draft** and are included in JSON exports, even when incomplete. **Mark Ready** checks completeness; editing a Ready question returns it to Draft. Export regularly for a file backup.
+5. Record the clip's subtitle status separately. Visible subtitles do not automatically make Text a required modality. No masking or subtitle processing is performed by this field.
+
 ## Download videos locally
 
 Use **Download video** for a full video or a selected range, a clip row’s download button for one saved clip, or **Download all** for a batch. Each request requires a destination: **Choose folder**, enter an existing absolute folder path, or explicitly select **Use default folder**. A batch chooses one folder and resolution, then queues all clips in time order.
@@ -80,13 +88,13 @@ Download only content you have permission to use. The toolkit does not import lo
 
 ## Annotation JSON schema
 
-The current format is **schema `1.0`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.1.0`. The English interface accepts Unicode text in names, notes, and tags.
+The current format is **schema `1.1`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.1.0`. The English interface accepts Unicode text in names, notes, and tags.
 
 ### Project fields
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | Must be `"1.0"`. |
+| `schema_version` | string | Exports use `"1.1"`; legacy `"1.0"` files are migrated on import. |
 | `project_id` | UUID string | Identifies this project. |
 | `project_name` | string | User-entered project name. |
 | `annotator` | object | Contains `id` and `name`, both strings. Either may be empty (`""`); neither creates an account. |
@@ -117,7 +125,29 @@ The current format is **schema `1.0`**, shared by the local app and browser edit
 | `tags` | array of strings | Labels such as `"conversation"`; may be empty (`[]`). |
 | `created_at`, `updated_at` | timestamp strings | Clip creation and last recorded modification. These are not an edit history. |
 
-All fields above are required on import except `exported_at`; optional user input is represented by empty strings or arrays, rather than missing fields. Project, video record, and clip UUIDs must be unique across the file. Timestamps are ISO 8601 strings and are exported in UTC (`Z`). Clip boundaries are numeric seconds rounded to milliseconds: `0 <= start_seconds < end_seconds`, with the end no later than the video duration when known. Clip duration is calculated as `end_seconds - start_seconds`; it is not a separate field. Millisecond storage does not guarantee frame-accurate playback or cutting.
+All fields above are required for schema 1.1 on import except `exported_at`; optional user input is represented by empty strings or arrays, rather than missing fields. Project, video record, and clip UUIDs must be unique across the file. Timestamps are ISO 8601 strings and are exported in UTC (`Z`). Clip boundaries are numeric seconds rounded to milliseconds: `0 <= start_seconds < end_seconds`, with the end no later than the video duration when known. Clip duration is calculated as `end_seconds - start_seconds`; it is not a separate field. Millisecond storage does not guarantee frame-accurate playback or cutting.
+
+### Questions (`videos[].clips[].questions[]`)
+
+Each clip adds `subtitle_status` (`unknown`, `none`, `present`, or `masked`) and a `questions` array, which may be empty. Subtitle status is descriptive: choosing `masked` records an already-masked version; it does not alter the video.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | UUID string | Stable question ID. Q1/Q2 are display positions only. |
+| `prompt` | string | Question text; may be empty in a draft. |
+| `options` | array | Up to 26 objects with stable UUID `id` and string `text`. Display letters are derived from order. |
+| `correct_option_id` | UUID string or `null` | References one existing option. Deleting that option clears the answer. |
+| `required_modalities` | array | Any combination of `audio`, `visual`, `text`. |
+| `evidence_cues` | array | Optional cues belonging to selected modalities; see below. |
+| `rationale` | string | Why these sources are needed; may be empty. |
+| `status` | string | `draft` or `ready`; Ready means author-complete, not peer-reviewed. |
+| `created_at`, `updated_at` | timestamp strings | Question creation and modification times. |
+
+Audio cues: `speech_content`, `prosody`, `environmental_sounds`. Visual cues: `action_event`, `gesture`, `facial_expression`, `gaze`, `person_appearance`, `object_scene`. Text cues: `subtitles`, `scene_text`. These describe the author's intended evidence requirements, not a verified ablation result. Question/option text itself does not count as a Text requirement.
+
+Drafts can be incomplete. Ready requires a nonempty prompt, at least two nonempty options, one correct answer, and at least one modality. Audio-only integration (such as speech plus prosody) is valid. All question fields are required in schema 1.1. IDs must be unique across project, video, clip, question and option records. Each clip supports up to 100 questions.
+
+Legacy schema 1.0 imports preserve existing notes and tags, add `questions: []` and `subtitle_status: "unknown"`, and export as 1.1. Notes are never automatically interpreted as questions. Older app releases cannot import 1.1 files; keep original exports if you need to return to an older release.
 
 ### Complete example
 
@@ -125,7 +155,7 @@ This example can be saved as a UTF-8 `.json` file and imported. It describes one
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "project_id": "11111111-1111-4111-8111-111111111111",
   "project_name": "Conversation pilot",
   "annotator": {
@@ -149,6 +179,8 @@ This example can be saved as a UTF-8 `.json` file and imported. It describes one
           "id": "33333333-3333-4333-8333-333333333333",
           "start_seconds": 10,
           "end_seconds": 14.25,
+          "subtitle_status": "unknown",
+          "questions": [],
           "note": "Review the opening exchange.",
           "tags": ["conversation", "pilot"],
           "created_at": "2026-08-31T09:05:00.000Z",
@@ -160,7 +192,7 @@ This example can be saved as a UTF-8 `.json` file and imported. It describes one
 }
 ```
 
-**What is not included:** unfinished clip drafts, the selected video, playback position, search/sidebar preferences, video/audio files, subtitles/transcripts, download status, resolution settings, or local file paths. Downloading a video does not itself create an annotation; use **Add clip** first to record a range.
+**What is not included:** unfinished clip-range drafts (question drafts are included), the selected video, playback position, search/sidebar preferences, video/audio files, subtitles/transcripts, download status, resolution settings, or local file paths. Downloading a video does not itself create an annotation; use **Add clip** first to record a range.
 
 `annotator` applies to the **whole project**. Changing it changes the label in subsequent exports, including for older clips; individual clips do not store separate authors. Downloaded MP4 filenames contain the YouTube ID and time range for clip downloads, but JSON does not yet provide a direct clip-ID-to-file mapping.
 

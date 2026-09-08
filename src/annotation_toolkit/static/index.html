@@ -126,12 +126,24 @@
           </section>
         </div>
 
+        <section class="qa-card" id="qa-panel" aria-labelledby="qa-heading">
+          <div class="qa-heading"><div><span class="section-kicker">DESIGN THE QUESTIONS</span><h2 id="qa-heading">Questions</h2><p id="qa-context">Save a clip, then design its questions here.</p></div><div class="qa-heading-actions"><button type="button" class="button secondary" id="qa-add" disabled>+ Add question</button><button type="button" class="text-button" id="qa-toggle" aria-expanded="true" aria-controls="qa-body">Collapse ▴</button></div></div>
+          <div id="qa-body">
+          <div id="qa-content" hidden>
+            <div class="qa-clip-bar"><label for="qa-clip-select">Selected clip</label><select id="qa-clip-select" aria-label="Select clip for questions"></select><button type="button" class="button secondary" id="qa-preview">Preview clip</button><label for="qa-subtitles">Subtitle status</label><select id="qa-subtitles"><option value="unknown">Not reviewed</option><option value="none">No subtitles</option><option value="present">With subtitles</option><option value="masked">Subtitle masked</option></select></div>
+            <p class="qa-help">Subtitle status describes the clip; it does not mask or modify the video.</p>
+            <div class="qa-layout"><nav id="qa-list" aria-label="Questions for selected clip"></nav><div id="qa-editor"></div></div>
+          </div>
+          <p class="qa-footnote">Questions autosave as drafts and are included in JSON exports. Ready means author-complete, not peer-reviewed.</p>
+          </div>
+        </section>
+
         <section class="clips-card" aria-labelledby="clips-heading">
-          <div class="clips-heading"><div><h2 id="clips-heading">Clips <span class="count-pill" id="clip-count">0</span></h2><p id="clips-description">Load a video, then add clips to this list.</p></div><div class="clips-actions"><label class="clip-search"><svg class="icon"><use href="#i-search"/></svg><input id="clips-search" placeholder="Search notes or tags" aria-label="Search notes or tags"></label><button class="button secondary" id="download-all-clips" type="button" disabled><svg class="icon"><use href="#i-download"/></svg>Download all</button></div></div>
+          <div class="clips-heading"><div><h2 id="clips-heading">Clips <span class="count-pill" id="clip-count">0</span></h2><p id="clips-description">Load a video, then add clips to this list.</p></div><div class="clips-actions"><label class="clip-search"><svg class="icon"><use href="#i-search"/></svg><input id="clips-search" placeholder="Search notes, tags or questions" aria-label="Search notes, tags or questions"></label><button class="button secondary" id="download-all-clips" type="button" disabled><svg class="icon"><use href="#i-download"/></svg>Download all</button></div></div>
           <div class="clips-empty" id="clips-empty"><span class="empty-bookmark"><svg class="icon"><use href="#i-bookmark"/></svg></span><h3>Your corpus starts with the first clip</h3><p>Mark the start and end, add your observations, then click Add clip.</p><span class="empty-step"><kbd>I</kbd><span>Mark start</span><span class="step-dash"></span><kbd>O</kbd><span>Mark end</span></span></div>
           <div class="table-scroll" id="clips-table-container" hidden><table><thead><tr><th scope="col">Clip</th><th scope="col">Time range</th><th scope="col">Note</th><th scope="col">Tags</th><th scope="col" class="actions-heading">Actions</th></tr></thead><tbody id="clips-body"></tbody></table></div>
           <div class="no-results" id="no-results" hidden>No matching clips. Try another search.</div>
-          <div class="clips-footer"><svg class="icon"><use href="#i-check"/></svg><span>Clips, notes, and tags are annotations. Saved in this browser; Export JSON creates a file.</span><span class="json-badge">.json</span></div>
+          <div class="clips-footer"><svg class="icon"><use href="#i-check"/></svg><span>Clips and their questions are annotations. Saved in this browser; Export JSON creates a file.</span><span class="json-badge">.json</span></div>
         </section>
         <footer class="page-footer"><span>A quiet workspace for careful observation.</span><span>LOCAL FIRST. HUMAN ANNOTATED.</span></footer>
       </main>
@@ -143,7 +155,7 @@
       <div class="dialog-heading"><div><div class="eyebrow">READY TO SHARE</div><h2>Export annotations</h2></div><button class="icon-button" id="close-export" aria-label="Close export"><svg class="icon"><use href="#i-close"/></svg></button></div>
       <p id="export-feedback" class="export-feedback" role="status"></p>
       <div id="export-path-container" hidden><label for="export-path" class="form-label">Saved file</label><input id="export-path" class="mono" readonly><button class="text-button" id="copy-export-path">Copy path</button></div>
-      <p class="export-help">Only saved clips are included. Video files are downloaded separately.</p>
+      <p class="export-help">Saved clips include all questions, including Drafts. Video files are downloaded separately.</p>
       <div class="dialog-actions"><button class="button secondary" id="copy-export-json">Copy JSON</button><button class="button secondary" id="download-export-copy"><svg class="icon"><use href="#i-download"/></svg>Download a copy</button><button class="button primary" id="done-export">Done</button></div>
     </dialog>
     <div class="toast" id="toast" role="status" hidden><svg class="icon"><use href="#i-check"/></svg><span id="toast-message"></span></div>

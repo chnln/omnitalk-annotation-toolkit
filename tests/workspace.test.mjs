@@ -651,3 +651,24 @@ test("local mode continues saving exported annotations through the backend", asy
   assert.equal(h.node("export-path-container").hidden, false);
   assert.equal(h.node("export-path").value, "/tmp/annotation-test-export.json");
 });
+
+test("question drafts autosave across videos/reload and survive clip edits and export", async () => {
+  const w=workspace(); w.api.addVideo("M7lc1UVf-VE"); w.fill("0","10","clip note"); w.api.saveClip();
+  await w.node("qa-add").click();
+  const descendants=(node)=>node.children.flatMap(child=>[child,...descendants(child)]);
+  const field=descendants(w.node("qa-editor")).find(n=>n.attributes["aria-label"]==="Question");
+  field.value="Who speaks next?"; await field.fire("input");
+  await w.node("qa-add").click();
+  const firstVideo=w.api.state().project.videos[0];
+  assert.equal(firstVideo.clips[0].questions.length,2);
+  w.api.addVideo("jNQXAC9IVRw"); w.fill("1","3","second clip"); w.api.saveClip();
+  await w.node("qa-add").click();
+  assert.equal(w.api.state().project.videos[1].clips[0].questions.length,1);
+  w.api.selectVideo(firstVideo.id);
+  await w.api.editClip(firstVideo.clips[0]); w.fill("0","11","updated note"); w.api.saveClip();
+  assert.equal(firstVideo.clips[0].questions[0].prompt,"Who speaks next?");
+  const restored=workspace([...w.storage]);
+  assert.equal(restored.api.state().project.videos[0].clips[0].questions.length,2);
+  await restored.api.exportProject();
+  assert.equal(restored.exports[0].videos[0].clips[0].questions[0].prompt,"Who speaks next?");
+});
