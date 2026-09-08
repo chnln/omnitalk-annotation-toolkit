@@ -420,15 +420,20 @@ def validate_export(data):
         if not isinstance(value, str) or len(value) > limit:
             raise DownloadError(f"{label} must be text with at most {limit} characters.")
 
+    ids = set()
+
     def identifier(value):
         try:
-            UUID(value)
+            normalized = str(UUID(value))
         except (ValueError, TypeError, AttributeError) as error:
-            raise DownloadError("Project, video, and clip IDs must be valid UUIDs.") from error
+            raise DownloadError("Record IDs must be valid UUIDs.") from error
+        if normalized in ids:
+            raise DownloadError("Duplicate record IDs.")
+        ids.add(normalized)
 
     obj(data, "Project")
-    if data.get("schema_version") != "1.0":
-        raise DownloadError("Unsupported annotation schema; expected version 1.0.")
+    if data.get("schema_version") not in ("1.0", "1.1"):
+        raise DownloadError("Unsupported annotation schema; expected version 1.0 or 1.1.")
     identifier(data.get("project_id"))
     text(data.get("project_name"), "Project name", 200)
     obj(data.get("annotator"), "Annotator")
@@ -472,6 +477,56 @@ def validate_export(data):
                 raise DownloadError("Clip tags must be a list with at most 50 entries.")
             for tag in tags:
                 text(tag, "Tag", 100)
+            if data["schema_version"] == "1.1":
+                if clip.get("subtitle_status") not in ("unknown", "none", "present", "masked"):
+                    raise DownloadError("Invalid subtitle status.")
+                questions = clip.get("questions")
+                if not isinstance(questions, list) or len(questions) > 100:
+                    raise DownloadError("A clip supports up to 100 questions.")
+                for question in questions:
+                    obj(question, "Question")
+                    identifier(question.get("id"))
+                    text(question.get("prompt"), "Question", 10000)
+                    text(question.get("rationale"), "Rationale", 20000)
+                    if question.get("status") not in ("draft", "ready"):
+                        raise DownloadError("Invalid question status.")
+                    for key in ("created_at", "updated_at"):
+                        value = question.get(key)
+                        text(value, key, 40)
+                        try:
+                            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                            if parsed.tzinfo is None:
+                                raise ValueError("Timezone required")
+                        except ValueError as error:
+                            raise DownloadError("Invalid question timestamp.") from error
+                    options = question.get("options")
+                    if not isinstance(options, list) or len(options) > 26:
+                        raise DownloadError("A question supports up to 26 options.")
+                    option_ids = []
+                    for option in options:
+                        obj(option, "Option")
+                        identifier(option.get("id"))
+                        option_ids.append(option["id"])
+                        text(option.get("text"), "Option", 5000)
+                    if "correct_option_id" not in question or (question["correct_option_id"] is not None and question["correct_option_id"] not in option_ids):
+                        raise DownloadError("Correct answer must reference an existing option.")
+                    taxonomy = {
+                        "audio": ("speech_content", "prosody", "environmental_sounds"),
+                        "visual": ("action_event", "gesture", "facial_expression", "gaze", "person_appearance", "object_scene"),
+                        "text": ("subtitles", "scene_text"),
+                    }
+                    def selection(value, allowed):
+                        if (not isinstance(value, list) or len(value) > len(allowed)
+                                or any(not isinstance(item, str) or item not in allowed for item in value)
+                                or len(set(value)) != len(value)):
+                            raise DownloadError("Invalid modality or evidence selection.")
+                    modalities = question.get("required_modalities")
+                    selection(modalities, taxonomy)
+                    selection(question.get("evidence_cues"), [cue for m in modalities for cue in taxonomy[m]])
+                    if question["status"] == "ready" and (not question["prompt"].strip() or len(options) < 2
+                            or any(not option["text"].strip() for option in options)
+                            or question["correct_option_id"] is None or not modalities):
+                        raise DownloadError("Ready questions need a prompt, two nonempty options, a correct answer and a modality.")
     return data
 
 

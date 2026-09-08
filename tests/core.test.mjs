@@ -132,3 +132,36 @@ test("imports enforce size limits and discard unrecognized JSON fields", () => {
   assert.equal(Object.hasOwn(cleaned, "__proto__"), false);
   assert.equal({}.polluted, undefined);
 });
+
+test("schema 1.0 migrates without interpreting notes; 1.1 preserves multiple questions", async () => {
+  const { createQuestion } = await import("../src/annotation_toolkit/static/core.js");
+  const p = createProject(); const v = createVideo(parseYouTubeUrl("M7lc1UVf-VE"));
+  v.clips.push(createClip({start_seconds:0,end_seconds:10,note:"Question: keep this note"})); p.videos.push(v);
+  const old = structuredClone(p); old.schema_version = "1.0";
+  delete old.videos[0].clips[0].questions; delete old.videos[0].clips[0].subtitle_status;
+  const migrated = validateProject(old);
+  assert.equal(migrated.schema_version, "1.1");
+  assert.equal(migrated.videos[0].clips[0].note, "Question: keep this note");
+  assert.deepEqual(migrated.videos[0].clips[0].questions, []);
+  v.clips[0].questions.push(createQuestion(), createQuestion());
+  assert.deepEqual(validateProject(p), p);
+});
+
+test("ready audio-only questions and stable answer IDs survive option reorder", async () => {
+  const { createQuestion, validateQuestion } = await import("../src/annotation_toolkit/static/core.js");
+  const q = createQuestion(); q.prompt = "Sincere or sarcastic?";
+  q.options = q.options.slice(0,2); q.options[0].text="Sincere"; q.options[1].text="Sarcastic";
+  q.correct_option_id=q.options[1].id; q.required_modalities=["audio"]; q.evidence_cues=["speech_content","prosody"]; q.status="ready";
+  q.options.reverse(); assert.equal(validateQuestion(q).correct_option_id, q.options[0].id);
+  q.options.shift(); assert.throws(()=>validateQuestion(q), /existing option/);
+});
+
+test("QA validation rejects malformed cues, duplicate IDs and incomplete Ready records", async () => {
+  const { createQuestion, validateQuestion } = await import("../src/annotation_toolkit/static/core.js");
+  const q=createQuestion(); q.status="ready"; assert.throws(()=>validateQuestion(q), /question/);
+  q.status="draft"; q.evidence_cues=["gaze"]; assert.throws(()=>validateQuestion(q), /evidence/);
+  q.required_modalities=["visual"]; assert.equal(validateQuestion(q).evidence_cues[0],"gaze");
+  const p=createProject(); const v=createVideo(parseYouTubeUrl("M7lc1UVf-VE"));
+  v.clips.push(createClip({start_seconds:0,end_seconds:10})); p.videos.push(v);
+  v.clips[0].questions=[q,structuredClone(q)]; assert.throws(()=>validateProject(p), /duplicate/);
+});
