@@ -1,5 +1,5 @@
 import {
-  STORAGE_KEY, LIMITS, createProject, createVideo, createClip,
+  STORAGE_KEY, LIMITS, createProject, createVideo, createClip, createQuestion, questionReadyError, MODALITIES,
   parseYouTubeUrl, parseTime, formatTime, validateProject,
 } from "./core.js";
 import { initDownloads } from "./downloads.js";
@@ -15,6 +15,8 @@ let project = createProject();
 let activeId = null;
 let drafts = {};
 let editingId = null;
+let qaClipId = null;
+let qaQuestionId = null;
 let player = null;
 let playerReady = false;
 let playerGeneration = 0;
@@ -281,7 +283,7 @@ function renderClips() {
     ? `Clips for ${video.title || video.video_id}, sorted by start time.`
     : "Load a video, then add clips to this list.";
   const query = $("clips-search").value.trim().toLocaleLowerCase();
-  const clips = allClips.filter((clip) => `${clip.note} ${clip.tags.join(" ")}`.toLocaleLowerCase().includes(query));
+  const clips = allClips.filter((clip) => `${clip.note} ${clip.tags.join(" ")} ${(clip.questions || []).map(q => q.prompt).join(" ")}`.toLocaleLowerCase().includes(query));
   $("clip-count").textContent = allClips.length;
   $("clips-empty").hidden = allClips.length > 0;
   $("clips-table-container").hidden = !clips.length;
@@ -303,6 +305,10 @@ function renderClips() {
     const note = el("div", `clip-note-text${clip.note ? "" : " empty"}`, clip.note || "No note");
     note.title = clip.note;
     noteCell.append(note);
+    const qaButton = el("button", "text-button", `${clip.questions.length} ${clip.questions.length === 1 ? "question" : "questions"} · Design QA →`);
+    qaButton.type = "button";
+    qaButton.addEventListener("click", () => { qaClipId = clip.id; qaQuestionId = null; setQACollapsed(false); renderQA(); $("qa-panel").scrollIntoView({ behavior: "smooth", block: "start" }); });
+    noteCell.append(qaButton);
     const tagCell = el("td");
     const tags = el("div", "tag-list");
     tags.append(...clip.tags.map((tag) => { const item = el("span", "clip-tag", tag); item.title = tag; return item; }));
@@ -315,6 +321,7 @@ function renderClips() {
     return row;
   }));
   renderTimeline();
+  renderQA();
   downloadUI?.refresh();
 }
 
@@ -671,8 +678,9 @@ function saveClip(event) {
     if (existing < 0 && (video.clips.length >= LIMITS.clipsPerVideo || project.videos.reduce((sum, item) => sum + item.clips.length, 0) >= LIMITS.totalClips)) {
       throw new Error("This batch has reached the clip limit. Export it before starting another batch.");
     }
-    if (existing >= 0) video.clips[existing] = { ...clip, id: editingId, created_at: video.clips[existing].created_at };
+    if (existing >= 0) video.clips[existing] = { ...video.clips[existing], ...clip, questions: video.clips[existing].questions, subtitle_status: video.clips[existing].subtitle_status, id: editingId, created_at: video.clips[existing].created_at };
     else video.clips.push(clip);
+    qaClipId = existing >= 0 ? editingId : clip.id;
     reconcileDuration(video);
     persistProject();
     resetDraft();
@@ -706,6 +714,7 @@ async function editClip(clip) {
   if (clip.id === editingId) return;
   const video = currentVideo();
   if (isDirtyDraft(currentDraft(), video) && !await confirmAction("Edit this clip?", "This will replace the unfinished draft in the editor. Your saved clips will not change.", "Start editing")) return;
+  qaClipId = clip.id;
   drafts[activeId] = { start: clock(clip.start_seconds), end: clock(clip.end_seconds), note: clip.note, tags: clip.tags.join(", "), editing_id: clip.id };
   restoreDraft();
   persistWorkspace();
@@ -715,7 +724,7 @@ async function editClip(clip) {
 
 async function deleteClip(clip) {
   const video = currentVideo();
-  if (!await confirmAction("Delete this annotation?", `${clock(clip.start_seconds)} → ${clock(clip.end_seconds)}\nOnly this annotation will be deleted. The original video and previously exported files will not change.`, "Delete clip")) return;
+  if (!await confirmAction("Delete this annotation?", `${clock(clip.start_seconds)} → ${clock(clip.end_seconds)}\nThis clip and all of its questions will be deleted. The original video and previously exported files will not change.`, "Delete clip")) return;
   video.clips = video.clips.filter((item) => item.id !== clip.id);
   if (editingId === clip.id) resetDraft();
   persistProject();
@@ -805,6 +814,133 @@ function renderProfile() {
   $("annotator-name").value = project.annotator.name;
   $("participant-avatar").textContent = [...(project.annotator.name || project.annotator.id || "A")][0].toLocaleUpperCase();
 }
+
+function setQACollapsed(collapsed) {
+  if (collapsed && $("qa-body").contains(document.activeElement)) $("qa-toggle").focus();
+  $("qa-body").hidden = collapsed;
+  $("qa-toggle").setAttribute("aria-expanded", String(!collapsed));
+  $("qa-toggle").textContent = collapsed ? "Expand ▾" : "Collapse ▴";
+}
+$("qa-toggle").addEventListener("click", () => setQACollapsed(!$("qa-body").hidden));
+
+// Question drafts are part of the project: every edit is persisted immediately.
+function qaClip() { return currentVideo()?.clips.find(c => c.id === qaClipId); }
+function qaSave(q) {
+  const clip = qaClip();
+  if (!clip) return;
+  const time = new Date().toISOString();
+  if (q) { q.updated_at = time; q.status = "draft"; }
+  clip.updated_at = time;
+  persistProject();
+  renderQAList();
+  const state = $("qa-state");
+  if (state && q) state.textContent = (storageBlocked ? "Draft · export a backup" : "Draft · edits saved locally");
+}
+function qaButton(label, handler, className = "button secondary") {
+  const button = el("button", className, label); button.type = "button";
+  button.addEventListener("click", handler); return button;
+}
+function renderQAList() {
+  const clip = qaClip();
+  if (!clip) return;
+  $("qa-list").replaceChildren(...clip.questions.map((q, i) => {
+    const button = qaButton("", () => { qaQuestionId = q.id; renderQAEditor(); renderQAList(); }, `qa-question${q.id === qaQuestionId ? " active" : ""}`);
+    button.setAttribute("aria-current", String(q.id === qaQuestionId));
+    button.append(el("span", "qa-question-number", `Q${i + 1} · ${q.status === "ready" ? "Ready" : "Draft"}`), el("strong", "", q.prompt || "Untitled question"));
+    return button;
+  }));
+}
+function renderQA() {
+  const clips = sortedClips();
+  if (!clips.some(c => c.id === qaClipId)) { qaClipId = clips[0]?.id ?? null; qaQuestionId = null; }
+  const clip = qaClip();
+  $("qa-add").disabled = !clip || clip.questions.length >= 100;
+  $("qa-content").hidden = !clip;
+  $("qa-context").textContent = clip ? `${clock(clip.start_seconds)} – ${clock(clip.end_seconds)} · ${clip.questions.length} ${clip.questions.length === 1 ? "question" : "questions"}` : "Save a clip, then design its questions here.";
+  $("qa-clip-select").replaceChildren(...clips.map((c, i) => { const o = el("option", "", `Clip ${i + 1} · ${clock(c.start_seconds)} – ${clock(c.end_seconds)}`); o.value = c.id; return o; }));
+  $("qa-clip-select").value = qaClipId || "";
+  if (!clip) return;
+  $("qa-subtitles").value = clip.subtitle_status;
+  renderQAEditor(); renderQAList();
+}
+function renderQAEditor() {
+  const clip = qaClip();
+  const host = $("qa-editor"); host.replaceChildren();
+  if (!clip) return;
+  if (!clip.questions.some(q => q.id === qaQuestionId)) qaQuestionId = clip.questions[0]?.id ?? null;
+  const q = clip.questions.find(q => q.id === qaQuestionId);
+  if (!q) { host.append(el("div", "qa-empty", "One clip, many questions. Add your first question to begin.")); return; }
+  function field(label, key, max, rows) {
+    const wrapper = el("label", "qa-field", label);
+    const input = el("textarea"); input.value = q[key]; input.maxLength = max; input.rows = rows;
+    input.setAttribute("aria-label", label);
+    input.addEventListener("input", () => { q[key] = input.value; qaSave(q); }); wrapper.append(input); return wrapper;
+  }
+  const columns = el("div", "qa-editor-columns");
+  const answers = el("div", "qa-answer-panel");
+  const evidence = el("div", "qa-evidence-panel");
+  columns.append(answers, evidence);
+  host.append(columns);
+  answers.append(field("Question", "prompt", 10000, 2));
+  const optionHeading = el("div", "qa-section-heading");
+  const addOption = qaButton("+ Add option", () => { q.options.push({ id: crypto.randomUUID(), text: "" }); qaSave(q); renderQAEditor(); }, "text-button");
+  addOption.disabled = q.options.length >= 26;
+  optionHeading.append(el("strong", "", "Answer options"), addOption); answers.append(optionHeading);
+  answers.append(el("p", "qa-help", "Select the circle beside the correct answer. Options can be left unfinished in a draft."));
+  for (const [i, option] of q.options.entries()) {
+    const row = el("div", "qa-option");
+    const radio = el("input"); radio.type = "radio"; radio.name = "qa-correct"; radio.checked = option.id === q.correct_option_id;
+    radio.setAttribute("aria-label", `Option ${String.fromCharCode(65 + i)} is correct`);
+    radio.addEventListener("change", () => { q.correct_option_id = option.id; qaSave(q); });
+    const input = el("textarea"); input.rows = 1; input.maxLength = 5000; input.value = option.text; input.setAttribute("aria-label", `Option ${String.fromCharCode(65 + i)}`);
+    input.addEventListener("input", () => { option.text = input.value; qaSave(q); });
+    const remove = qaButton("×", () => { q.options = q.options.filter(o => o.id !== option.id); if (q.correct_option_id === option.id) q.correct_option_id = null; qaSave(q); renderQAEditor(); }, "qa-remove");
+    remove.setAttribute("aria-label", `Remove option ${String.fromCharCode(65 + i)}`);
+    row.append(radio, el("span", "", String.fromCharCode(65 + i)), input, remove); answers.append(row);
+  }
+  evidence.append(el("strong", "qa-label", "Required modalities"), el("p", "qa-help", "Select evidence needed to answer this question, not everything present in the clip. Question text itself does not count as Text."));
+  const broad = el("div", "qa-chips");
+  for (const [key, group] of Object.entries(MODALITIES)) {
+    const selected = q.required_modalities.includes(key);
+    const button = qaButton(group.label, () => {
+      q.required_modalities = selected ? q.required_modalities.filter(m => m !== key) : [...q.required_modalities, key];
+      if (selected) q.evidence_cues = q.evidence_cues.filter(c => !Object.hasOwn(group.cues, c));
+      qaSave(q); renderQAEditor();
+    }, "qa-chip"); button.setAttribute("aria-pressed", String(selected)); broad.append(button);
+  }
+  evidence.append(broad);
+  for (const key of q.required_modalities) {
+    const group = MODALITIES[key]; evidence.append(el("span", "qa-label", `${group.label} cues · optional`));
+    const cues = el("div", "qa-chips");
+    for (const [cue, label] of Object.entries(group.cues)) {
+      const selected = q.evidence_cues.includes(cue);
+      const button = qaButton(label, () => { q.evidence_cues = selected ? q.evidence_cues.filter(c => c !== cue) : [...q.evidence_cues, cue]; qaSave(q); renderQAEditor(); }, "qa-chip small");
+      button.setAttribute("aria-pressed", String(selected)); cues.append(button);
+    }
+    evidence.append(cues);
+  }
+  if (q.required_modalities.includes("text")) evidence.append(el("p", "qa-help", "Subtitles are a requirement only if the answer needs them. Scene text includes signs, notes and phone screens."));
+  evidence.append(field("Why are these needed? · Optional", "rationale", 20000, 2));
+  const error = el("p", "field-error"); error.setAttribute("role", "alert");
+  const footer = el("div", "qa-editor-footer");
+  const state = el("span", "qa-state", q.status === "ready" ? "Ready · author-complete" : (storageBlocked ? "Draft · export a backup" : "Draft · edits saved locally")); state.id = "qa-state";
+  footer.append(state, qaButton("Mark Ready", () => {
+    const message = questionReadyError(q); if (message) { error.textContent = message; return; }
+    qaSave(q); q.status = "ready"; persistProject(); renderQAList(); renderQAEditor();
+  }), qaButton("Delete question", async () => {
+    if (!await confirmAction("Delete this question?", "The question, its options and evidence labels will be removed from this clip.", "Delete question")) return;
+    clip.questions = clip.questions.filter(item => item.id !== q.id); qaQuestionId = null; qaSave(); renderQA(); renderClips();
+  }, "text-button"));
+  host.append(error, footer);
+}
+$("qa-add").addEventListener("click", () => {
+  const clip = qaClip(); if (!clip || clip.questions.length >= 100) return;
+  setQACollapsed(false);
+  const q = createQuestion(); clip.questions.push(q); qaQuestionId = q.id; qaSave(q); renderClips();
+});
+$("qa-clip-select").addEventListener("change", () => { qaClipId = $("qa-clip-select").value; qaQuestionId = null; renderQA(); });
+$("qa-subtitles").addEventListener("change", () => { const clip = qaClip(); if (clip) { clip.subtitle_status = $("qa-subtitles").value; qaSave(); } });
+$("qa-preview").addEventListener("click", () => { const clip = qaClip(); if (clip) previewInterval(clip.start_seconds, clip.end_seconds); });
 
 $("sidebar-toggle").addEventListener("click", () => setSidebarCollapsed(!sidebarCollapsed));
 $("source-form").addEventListener("submit", (event) => { event.preventDefault(); addVideo($("source-url").value); });
