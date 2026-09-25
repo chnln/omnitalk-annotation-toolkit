@@ -122,7 +122,7 @@ function clipFields({ start_seconds, end_seconds, note = "", tags: clipTags = []
   return { start_seconds: start, end_seconds: end, note: text(note, "Note", 20000), tags: tags(clipTags) };
 }
 
-/** Records keep a copy of the annotator who created them; later profile edits do not rewrite authorship. */
+/** Clips keep a copy of the annotator who created them; later profile edits do not rewrite authorship. */
 const annotatorCopy = (annotator = {}) => ({ id: annotator.id ?? "", name: annotator.name ?? "" });
 
 function annotatorRecord(value, label) {
@@ -186,7 +186,7 @@ export function validateProject(data) {
     videos: [],
   };
   if (data.exported_at !== undefined) timestamp(data.exported_at, "Export time");
-  // Before 1.2 only the project had an annotator, so it is the best available author for older records.
+  // Before 1.2 only the project had an annotator, so it is the best available author for older clips.
   const legacyAuthor = data.schema_version === SCHEMA_VERSION ? null : project.annotator;
   let totalClips = 0;
   project.videos = data.videos.map((video) => {
@@ -214,7 +214,7 @@ export function validateProject(data) {
           id: recordId(clip.id, "Clip ID"),
           ...clipFields(clip, duration),
           annotator: legacyAuthor ? annotatorCopy(legacyAuthor) : annotatorRecord(clip.annotator, "Clip annotator"),
-          ...validateClipQA(clip, data.schema_version, recordId, legacyAuthor),
+          ...validateClipQA(clip, data.schema_version, recordId),
           created_at: timestamp(clip.created_at, "Clip creation time"),
           updated_at: timestamp(clip.updated_at, "Clip update time"),
         };
@@ -232,9 +232,9 @@ export const MODALITIES = {
   text: { label: "Text", cues: { subtitles: "Subtitles", scene_text: "Scene text" } },
 };
 export const SUBTITLE_STATUSES = { unknown: "Not reviewed", none: "No subtitles", present: "With subtitles", masked: "Subtitle masked" };
-export function createQuestion(annotator = {}) {
+export function createQuestion() {
   const time = now();
-  return { id: uuid(), annotator: annotatorCopy(annotator), prompt: "", options: [0, 1, 2].map(() => ({ id: uuid(), text: "" })), correct_option_id: null,
+  return { id: uuid(), prompt: "", options: [0, 1, 2].map(() => ({ id: uuid(), text: "" })), correct_option_id: null,
     required_modalities: [], evidence_cues: [], rationale: "", status: "draft", created_at: time, updated_at: time };
 }
 export function questionReadyError(q) {
@@ -247,7 +247,7 @@ export function questionReadyError(q) {
 export function validateQuestion(q, recordId = (value) => {
   if (typeof value !== "string" || !UUID.test(value)) throw new Error("Question and option IDs must be UUIDs.");
   return value.toLowerCase();
-}, legacyAuthor = null) {
+}) {
   object(q, "Question");
   if (!["draft", "ready"].includes(q.status)) throw new Error("Question status must be draft or ready.");
   if (!Array.isArray(q.options) || q.options.length > 26) throw new Error("A question supports up to 26 options.");
@@ -262,31 +262,28 @@ export function validateQuestion(q, recordId = (value) => {
   };
   const modalities = selection(q.required_modalities, Object.keys(MODALITIES), "required modalities");
   const cues = selection(q.evidence_cues, modalities.flatMap(m => Object.keys(MODALITIES[m].cues)), "evidence cues or parent modality");
-  const annotator = legacyAuthor ? annotatorCopy(legacyAuthor) : annotatorRecord(q.annotator, "Question annotator");
-  const result = { id, annotator, prompt: text(q.prompt, "Question", 10000), options, correct_option_id: correct,
+  const result = { id, prompt: text(q.prompt, "Question", 10000), options, correct_option_id: correct,
     required_modalities: modalities, evidence_cues: cues, rationale: text(q.rationale, "Rationale", 20000), status: q.status,
     created_at: timestamp(q.created_at, "Question creation time"), updated_at: timestamp(q.updated_at, "Question update time") };
   const error = questionReadyError(result);
   if (result.status === "ready" && error) throw new Error(error);
   return result;
 }
-function validateClipQA(clip, version, recordId, legacyAuthor) {
+function validateClipQA(clip, version, recordId) {
   if (version === "1.0") return { subtitle_status: "unknown", questions: [] };
   if (!Object.hasOwn(SUBTITLE_STATUSES, clip.subtitle_status)) throw new Error("Invalid clip subtitle status.");
   if (!Array.isArray(clip.questions) || clip.questions.length > 100) throw new Error("A clip supports up to 100 questions.");
-  return { subtitle_status: clip.subtitle_status, questions: clip.questions.map(q => validateQuestion(q, recordId, legacyAuthor)) };
+  return { subtitle_status: clip.subtitle_status, questions: clip.questions.map(q => validateQuestion(q, recordId)) };
 }
 
 /* Library filters: pure helpers so the sidebar and tests share one definition. */
 const annotatorKey = (annotator) => JSON.stringify([annotator?.id ?? "", annotator?.name ?? ""]);
 
-/** Distinct clip and question authors across the given videos, sorted by label; unattributed records get label "". */
+/** Distinct clip annotators (video collectors), sorted by label; unattributed clips get label "". */
 export function projectAnnotators(videos) {
   const found = new Map();
   for (const video of videos) {
-    for (const clip of video.clips) {
-      for (const record of [clip, ...clip.questions]) found.set(annotatorKey(record.annotator), annotatorLabel(record.annotator));
-    }
+    for (const clip of video.clips) found.set(annotatorKey(clip.annotator), annotatorLabel(clip.annotator));
   }
   return [...found].map(([key, label]) => ({ key, label }))
     .sort((a, b) => (a.label === "") - (b.label === "") || a.label.localeCompare(b.label));
@@ -308,7 +305,7 @@ export function filterVideos(videos, { query = "", annotator = "", tag = "", sta
   const needle = query.trim().toLocaleLowerCase();
   return videos.filter((video) => {
     if (needle && !`${video.title} ${video.video_id}`.toLocaleLowerCase().includes(needle)) return false;
-    if (annotator && !video.clips.some((clip) => [clip, ...clip.questions].some((record) => annotatorKey(record.annotator) === annotator))) return false;
+    if (annotator && !video.clips.some((clip) => annotatorKey(clip.annotator) === annotator)) return false;
     if (tag && !video.clips.some((clip) => clip.tags.includes(tag))) return false;
     const questions = video.clips.flatMap((clip) => clip.questions);
     if (status === "has-drafts") return questions.some((q) => q.status === "draft");

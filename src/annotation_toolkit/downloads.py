@@ -492,8 +492,6 @@ def validate_export(data):
                 for question in questions:
                     obj(question, "Question")
                     identifier(question.get("id"))
-                    if version == "1.2":
-                        annotator(question.get("annotator"), "Question annotator")
                     text(question.get("prompt"), "Question", 10000)
                     text(question.get("rationale"), "Rationale", 20000)
                     if question.get("status") not in ("draft", "ready"):

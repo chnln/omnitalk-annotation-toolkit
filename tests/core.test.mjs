@@ -166,29 +166,27 @@ test("QA validation rejects malformed cues, duplicate IDs and incomplete Ready r
   v.clips[0].questions=[q,structuredClone(q)]; assert.throws(()=>validateProject(p), /duplicate/);
 });
 
-test("1.1 imports attribute clips and questions to the project annotator; 1.2 keeps per-record authors", async () => {
+test("1.1 imports attribute clips to the project annotator; 1.2 keeps per-clip annotators", async () => {
   const { createQuestion, annotatorLabel } = await import("../src/annotation_toolkit/static/core.js");
   const p = createProject(); p.annotator = { id: "P001", name: "Leixin" };
   const v = createVideo(parseYouTubeUrl("M7lc1UVf-VE"));
   v.clips.push(createClip({ start_seconds: 0, end_seconds: 10 }, null, { id: "P002", name: "Nan" }));
-  v.clips[0].questions.push(createQuestion({ id: "", name: "Luting" }));
+  v.clips[0].questions.push(createQuestion());
   p.videos.push(v);
   const current = validateProject(structuredClone(p));
   assert.deepEqual(current.videos[0].clips[0].annotator, { id: "P002", name: "Nan" });
-  assert.deepEqual(current.videos[0].clips[0].questions[0].annotator, { id: "", name: "Luting" });
+  assert.equal(Object.hasOwn(current.videos[0].clips[0].questions[0], "annotator"), false, "questions carry no annotator");
   const old = structuredClone(p); old.schema_version = "1.1";
-  delete old.videos[0].clips[0].annotator; delete old.videos[0].clips[0].questions[0].annotator;
+  delete old.videos[0].clips[0].annotator;
   const migrated = validateProject(old);
   assert.deepEqual(migrated.videos[0].clips[0].annotator, { id: "P001", name: "Leixin" });
-  assert.deepEqual(migrated.videos[0].clips[0].questions[0].annotator, { id: "P001", name: "Leixin" });
   migrated.videos[0].clips[0].annotator.name = "changed";
   assert.equal(migrated.annotator.name, "Leixin", "records must not share the project annotator object");
   for (const mutate of [
     (x) => { delete x.videos[0].clips[0].annotator; },
     (x) => { x.videos[0].clips[0].annotator = "Nan"; },
     (x) => { x.videos[0].clips[0].annotator.id = 7; },
-    (x) => { delete x.videos[0].clips[0].questions[0].annotator; },
-    (x) => { x.videos[0].clips[0].questions[0].annotator.name = "x".repeat(201); },
+    (x) => { x.videos[0].clips[0].annotator.name = "x".repeat(201); },
   ]) {
     const broken = structuredClone(p); mutate(broken);
     assert.throws(() => validateProject(broken), Error, mutate.toString());
@@ -204,10 +202,12 @@ test("library filters combine text, annotator, tag, and question status", async 
   const video = (id, title) => { const v = createVideo(parseYouTubeUrl(id)); v.title = title; return v; };
   const a = video("M7lc1UVf-VE", "Dinner date");
   a.clips.push(createClip({ start_seconds: 0, end_seconds: 5, tags: ["range-fix"] }, null, nan));
-  const ready = createQuestion(erik); ready.status = "ready"; a.clips[0].questions.push(ready);
+  a.clips.push(createClip({ start_seconds: 5, end_seconds: 8 }, null, erik));
+  const ready = createQuestion(); ready.status = "ready"; a.clips[0].questions.push(ready); a.clips[1].questions.push(structuredClone(ready));
+  a.clips[1].questions[0].id = crypto.randomUUID();
   const b = video("jNQXAC9IVRw", "Taskmaster");
   b.clips.push(createClip({ start_seconds: 0, end_seconds: 5 }, null, nan), createClip({ start_seconds: 5, end_seconds: 9 }));
-  b.clips[0].questions.push(createQuestion(nan));
+  b.clips[0].questions.push(createQuestion());
   const c = video("dQw4w9WgXcQ", "Empty video");
   const all = [a, b, c];
   const ids = (filters) => filterVideos(all, filters).map((v) => v.title);
@@ -216,8 +216,8 @@ test("library filters combine text, annotator, tag, and question status", async 
   assert.deepEqual(ids({ query: "dQw4" }), ["Empty video"]);
   const authors = projectAnnotators(all);
   assert.deepEqual(authors.map((x) => x.label), ["Erik (E1)", "Nan", ""]);
-  assert.deepEqual(ids({ annotator: authors[0].key }), ["Dinner date"], "question authors count, not only clip authors");
-  assert.deepEqual(ids({ annotator: authors[2].key }), ["Taskmaster"], "unattributed records are filterable");
+  assert.deepEqual(ids({ annotator: authors[0].key }), ["Dinner date"]);
+  assert.deepEqual(ids({ annotator: authors[2].key }), ["Taskmaster"], "unattributed clips are filterable");
   assert.deepEqual(projectTags(all), ["range-fix"]);
   assert.deepEqual(ids({ tag: "range-fix" }), ["Dinner date"]);
   assert.deepEqual(ids({ status: "has-drafts" }), ["Taskmaster"]);

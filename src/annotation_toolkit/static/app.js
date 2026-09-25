@@ -1,7 +1,7 @@
 import {
   STORAGE_KEY, LIMITS, createProject, createVideo, createClip, createQuestion, questionReadyError, MODALITIES,
   parseYouTubeUrl, parseTime, formatTime, validateProject,
-  annotatorLabel, projectAnnotators, projectTags, filterVideos, QUESTION_STATUS_FILTERS,
+  projectAnnotators, projectTags, filterVideos, QUESTION_STATUS_FILTERS,
 } from "./core.js";
 import { initDownloads } from "./downloads.js";
 
@@ -223,8 +223,6 @@ function isDirtyDraft(draft, video) {
   } catch { return true; }
 }
 
-const authorText = (record) => annotatorLabel(record.annotator) || "Unattributed";
-
 function videoDetail(video) {
   const parts = [`${video.clips.length} ${video.clips.length === 1 ? "clip" : "clips"}`, video.duration_seconds ? formatTime(video.duration_seconds) : "Unknown duration"];
   const authors = projectAnnotators([video]);
@@ -320,7 +318,7 @@ function renderClips() {
     ? `Clips for ${video.title || video.video_id}, sorted by start time.`
     : "Load a video, then add clips to this list.";
   const query = $("clips-search").value.trim().toLocaleLowerCase();
-  const clips = allClips.filter((clip) => [clip.note, ...clip.tags, ...clip.questions.map((q) => q.prompt), ...[clip, ...clip.questions].map(authorText)].join(" ").toLocaleLowerCase().includes(query));
+  const clips = allClips.filter((clip) => `${clip.note} ${clip.tags.join(" ")} ${(clip.questions || []).map(q => q.prompt).join(" ")}`.toLocaleLowerCase().includes(query));
   $("clip-count").textContent = allClips.length;
   $("clips-empty").hidden = allClips.length > 0;
   $("clips-table-container").hidden = !clips.length;
@@ -346,12 +344,6 @@ function renderClips() {
     qaButton.type = "button";
     qaButton.addEventListener("click", () => { qaClipId = clip.id; qaQuestionId = null; setQACollapsed(false); renderQA(); $("qa-panel").scrollIntoView({ behavior: "smooth", block: "start" }); });
     noteCell.append(qaButton);
-    const authorCell = el("td");
-    const author = el("div", `clip-annotator${annotatorLabel(clip.annotator) ? "" : " empty"}`, authorText(clip));
-    const questionAuthors = [...new Set(clip.questions.map(authorText))].filter((label) => label !== authorText(clip));
-    if (questionAuthors.length) author.title = `Questions also by ${questionAuthors.join(", ")}`;
-    authorCell.append(author);
-    if (questionAuthors.length) authorCell.append(el("div", "clip-annotator-more", `+ questions by ${questionAuthors.join(", ")}`));
     const tagCell = el("td");
     const tags = el("div", "tag-list");
     tags.append(...clip.tags.map((tag) => { const item = el("span", "clip-tag", tag); item.title = tag; return item; }));
@@ -360,7 +352,7 @@ function renderClips() {
     const actions = el("div", "row-actions");
     actions.append(actionButton(`Download clip ${number}`, "download", () => downloadUI?.open(clip)), actionButton(`Edit clip ${number}`, "edit", () => editClip(clip)), actionButton(`Delete clip ${number}`, "trash", () => deleteClip(clip), "delete-clip"));
     actionsCell.append(actions);
-    row.append(numberCell, timeCell, noteCell, authorCell, tagCell, actionsCell);
+    row.append(numberCell, timeCell, noteCell, tagCell, actionsCell);
     return row;
   }));
   renderTimeline();
@@ -892,7 +884,7 @@ function renderQAList() {
   $("qa-list").replaceChildren(...clip.questions.map((q, i) => {
     const button = qaButton("", () => { qaQuestionId = q.id; renderQAEditor(); renderQAList(); }, `qa-question${q.id === qaQuestionId ? " active" : ""}`);
     button.setAttribute("aria-current", String(q.id === qaQuestionId));
-    button.append(el("span", "qa-question-number", `Q${i + 1} · ${q.status === "ready" ? "Ready" : "Draft"}`), el("strong", "", q.prompt || "Untitled question"), el("span", "qa-question-author", authorText(q)));
+    button.append(el("span", "qa-question-number", `Q${i + 1} · ${q.status === "ready" ? "Ready" : "Draft"}`), el("strong", "", q.prompt || "Untitled question"));
     return button;
   }));
 }
@@ -970,7 +962,7 @@ function renderQAEditor() {
   const error = el("p", "field-error"); error.setAttribute("role", "alert");
   const footer = el("div", "qa-editor-footer");
   const state = el("span", "qa-state", q.status === "ready" ? "Ready · author-complete" : (storageBlocked ? "Draft · export a backup" : "Draft · edits saved locally")); state.id = "qa-state";
-  footer.append(state, el("span", "qa-author", `Written by ${authorText(q)}`), qaButton("Mark Ready", () => {
+  footer.append(state, qaButton("Mark Ready", () => {
     const message = questionReadyError(q); if (message) { error.textContent = message; return; }
     qaSave(q); q.status = "ready"; persistProject(); renderQAList(); renderQAEditor();
     if (libraryFilter.status) renderVideos();
@@ -983,7 +975,7 @@ function renderQAEditor() {
 $("qa-add").addEventListener("click", () => {
   const clip = qaClip(); if (!clip || clip.questions.length >= 100) return;
   setQACollapsed(false);
-  const q = createQuestion(project.annotator); clip.questions.push(q); qaQuestionId = q.id; qaSave(q); renderClips();
+  const q = createQuestion(); clip.questions.push(q); qaQuestionId = q.id; qaSave(q); renderClips();
 });
 $("qa-clip-select").addEventListener("change", () => { qaClipId = $("qa-clip-select").value; qaQuestionId = null; renderQA(); });
 $("qa-subtitles").addEventListener("change", () => { const clip = qaClip(); if (clip) { clip.subtitle_status = $("qa-subtitles").value; qaSave(); } });

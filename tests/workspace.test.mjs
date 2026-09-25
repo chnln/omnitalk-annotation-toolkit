@@ -673,28 +673,22 @@ test("question drafts autosave across videos/reload and survive clip edits and e
   assert.equal(restored.exports[0].videos[0].clips[0].questions[0].prompt,"Who speaks next?");
 });
 
-test("clips and questions record their author, keep it across edits and profile changes, and show it in the UI", async () => {
+test("clips record their annotator, keep it across edits and profile changes, and name collectors in the library", async () => {
   const w = workspace();
   w.node("annotator-name").value = "Nan"; await w.node("annotator-name").fire("input");
   w.api.addVideo("M7lc1UVf-VE"); w.fill("0", "10", "first"); w.api.saveClip();
   await w.node("qa-add").click();
+  const video = () => w.api.state().project.videos[0];
+  const detail = () => w.libraryItem("M7lc1UVf-VE").querySelector(".video-item-detail").textContent;
+  assert.match(detail(), / · Nan$/);
   w.node("annotator-name").value = "Leixin"; await w.node("annotator-name").fire("input");
-  await w.node("qa-add").click();
-  const clip = w.api.state().project.videos[0].clips[0];
-  assert.deepEqual(clip.annotator, { id: "", name: "Nan" });
-  assert.deepEqual(clip.questions.map((q) => q.annotator.name), ["Nan", "Leixin"]);
-  await w.api.editClip(clip); w.fill("1", "10", "edited by Leixin"); w.api.saveClip();
-  const edited = w.api.state().project.videos[0].clips[0];
-  assert.equal(edited.note, "edited by Leixin");
-  assert.deepEqual(edited.annotator, { id: "", name: "Nan" }, "editing must not reassign the clip author");
-  const row = w.node("clips-body").children[0];
-  assert.equal(row.children[3].querySelector(".clip-annotator").textContent, "Nan");
-  assert.equal(row.children[3].querySelector(".clip-annotator-more").textContent, "+ questions by Leixin");
-  const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
-  assert.deepEqual(w.node("qa-list").querySelectorAll(".qa-question-author").map((n) => n.textContent), ["Nan", "Leixin"]);
-  assert.ok(descendants(w.node("qa-editor")).some((n) => n.textContent === "Written by Nan" || n.textContent === "Written by Leixin"));
-  w.node("clips-search").value = "leixin"; await w.node("clips-search").fire("input");
-  assert.equal(w.node("clips-body").children.length, 1, "clip search matches question authors");
+  await w.api.editClip(video().clips[0]); w.fill("1", "10", "edited by Leixin"); w.api.saveClip();
+  assert.equal(video().clips[0].note, "edited by Leixin");
+  assert.deepEqual(video().clips[0].annotator, { id: "", name: "Nan" }, "editing must not reassign the clip annotator");
+  assert.equal(Object.hasOwn(video().clips[0].questions[0], "annotator"), false, "questions carry no annotator");
+  w.fill("20", "30", "second"); w.api.saveClip();
+  assert.match(detail(), / · 2 annotators$/);
+  assert.equal(w.node("clips-body").children[0].children.length, 5, "the clips table has no annotator column");
   await w.api.exportProject();
   const exported = core.validateProject(w.exports[0]);
   assert.equal(exported.schema_version, "1.2");

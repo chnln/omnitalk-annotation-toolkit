@@ -51,11 +51,11 @@ uv run annotation-toolkit --download-dir "/absolute/path/to/output"
 
 ## Annotate
 
-1. Set a project name. **Annotator ID** and **Display name** are optional; they identify the author in exported JSON, not a login. Each new clip and question records the annotator entered at the time it is created, so one project can hold work from several people. Changing these fields later does not reassign existing records.
+1. Set a project name. **Annotator ID** and **Display name** are optional; they identify the author in exported JSON, not a login. Each new clip records the annotator entered when it is added, so one project can hold videos collected by several people; the **Video library** shows each video's annotator under its title. Changing these fields later does not reassign existing clips.
 2. Paste a YouTube link or video ID and click **Load video**. Switch between videos in **Video library**; each keeps its clips and unfinished draft.
 3. Set **Start time** and **End time**, or click **Use current** while playing. Add **Note** and **Tags**, then click **Add clip**.
-4. Preview, edit, or delete clips from the list. The **Annotator** column shows who created each clip, and notes when some of its questions were written by someone else. The clip search also matches annotator names. **Download all** applies to every saved clip of the selected video, including clips hidden by search, but excludes unfinished drafts and other videos.
-5. Narrow the **Video library** with the filters under its heading: title or YouTube ID, annotator (anyone who created a clip or question in the video), clip tag, and question status (has Draft questions, all questions Ready, clips without questions, or no clips yet). Filters combine, only change what the sidebar shows, and are not saved in the project.
+4. Preview, edit, or delete clips from the list. **Download all** applies to every saved clip of the selected video, including clips hidden by search, but excludes unfinished drafts and other videos.
+5. Narrow the **Video library** with the filters under its heading: title or YouTube ID, annotator (anyone who added a clip to the video), clip tag, and question status (has Draft questions, all questions Ready, clips without questions, or no clips yet). Filters combine, only change what the sidebar shows, and are not saved in the project.
 6. Use **Export JSON** to keep a backup or share annotations. **Import JSON** validates the file and asks before replacing an existing workspace with videos or drafts.
 
 | Shortcut | Action |
@@ -98,7 +98,7 @@ The current format is **schema `1.2`**, shared by the local app and browser edit
 | `schema_version` | string | Exports use `"1.2"`; legacy `"1.0"` and `"1.1"` files are migrated on import. |
 | `project_id` | UUID string | Identifies this project. |
 | `project_name` | string | User-entered project name. |
-| `annotator` | object | The current annotator: contains `id` and `name`, both strings. Either may be empty (`""`); neither creates an account. New clips and questions copy it as their own `annotator`. |
+| `annotator` | object | The current annotator: contains `id` and `name`, both strings. Either may be empty (`""`); neither creates an account. New clips copy it as their own `annotator`. |
 | `created_at`, `updated_at` | timestamp strings | Project creation and last recorded modification. |
 | `exported_at` | timestamp string | When this file was exported. Included in exports, optional on import, and regenerated on the next export. |
 | `videos` | array | All video records in the project, including videos with no saved clips. |
@@ -136,7 +136,6 @@ Each clip adds `subtitle_status` (`unknown`, `none`, `present`, or `masked`) and
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `id` | UUID string | Stable question ID. Q1/Q2 are display positions only. |
-| `annotator` | object | Who wrote the question: `id` and `name` strings, copied from the project annotator when the question was added. It can differ from the clip's annotator. |
 | `prompt` | string | Question text; may be empty in a draft. |
 | `options` | array | Up to 26 objects with stable UUID `id` and string `text`. Display letters are derived from order. |
 | `correct_option_id` | UUID string or `null` | References one existing option. Deleting that option clears the answer. |
@@ -150,7 +149,7 @@ Audio cues: `speech_content`, `prosody`, `environmental_sounds`. Visual cues: `a
 
 Drafts can be incomplete. Ready requires a nonempty prompt, at least two nonempty options, one correct answer, and at least one modality. Audio-only integration (such as speech plus prosody) is valid. All question fields are required in schema 1.2. IDs must be unique across project, video, clip, question and option records. Each clip supports up to 100 questions.
 
-Legacy schema 1.0 imports preserve existing notes and tags, add `questions: []` and `subtitle_status: "unknown"`, and export as 1.2. Notes are never automatically interpreted as questions. Schema 1.1 imports have no per-record authors, so each clip and question is attributed to the file's project `annotator`, then exported as 1.2. Older app releases cannot import newer schemas; keep original exports if you need to return to an older release.
+Legacy schema 1.0 imports preserve existing notes and tags, add `questions: []` and `subtitle_status: "unknown"`, and export as 1.2. Notes are never automatically interpreted as questions. Schema 1.1 imports have no per-clip annotators, so each clip is attributed to the file's project `annotator`, then exported as 1.2. Older app releases cannot import newer schemas; keep original exports if you need to return to an older release.
 
 ### Complete example
 
@@ -201,7 +200,7 @@ This example can be saved as a UTF-8 `.json` file and imported. It describes one
 
 **What is not included:** unfinished clip-range drafts (question drafts are included), the selected video, playback position, search/sidebar preferences, video/audio files, subtitles/transcripts, download status, resolution settings, or local file paths. Downloading a video does not itself create an annotation; use **Add clip** first to record a range.
 
-The project `annotator` is whoever is annotating now; each clip and question keeps its own `annotator`, so changing the project field affects only records created afterwards. Downloaded MP4 filenames contain the YouTube ID and time range for clip downloads, but JSON does not yet provide a direct clip-ID-to-file mapping.
+The project `annotator` is whoever is annotating now; each clip keeps its own `annotator`, so changing the project field affects only clips added afterwards. Downloaded MP4 filenames contain the YouTube ID and time range for clip downloads, but JSON does not yet provide a direct clip-ID-to-file mapping.
 
 ## Export and import annotations
 
