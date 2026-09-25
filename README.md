@@ -55,7 +55,7 @@ uv run annotation-toolkit --download-dir "/absolute/path/to/output"
 2. Paste a YouTube link or video ID and click **Load video**. Switch between videos in **Video library**; each keeps its clips and unfinished draft.
 3. Set **Start time** and **End time**, or click **Use current** while playing. Add **Note** and **Tags**, then click **Add clip**.
 4. Preview, edit, or delete clips from the list. **Download all** applies to every saved clip of the selected video, including clips hidden by search, but excludes unfinished drafts and other videos.
-5. Narrow the **Video library** with the filters under its heading: title or YouTube ID, annotator (anyone who added a clip to the video), clip tag, and question status (has Draft questions, all questions Ready, clips without questions, or no clips yet). Filters combine, only change what the sidebar shows, and are not saved in the project.
+5. Narrow the **Video library** with the filters under its heading: title or YouTube ID, annotator (anyone who added a clip to the video), and question status (has Draft questions, all questions Ready, clips without questions, or no clips yet). Filters combine, only change what the sidebar shows, and are not saved in the project.
 6. Use **Export JSON** to keep a backup or share annotations. **Import JSON** validates the file and asks before replacing an existing workspace with videos or drafts.
 
 | Shortcut | Action |

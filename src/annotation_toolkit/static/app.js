@@ -1,7 +1,7 @@
 import {
   STORAGE_KEY, LIMITS, createProject, createVideo, createClip, createQuestion, questionReadyError, MODALITIES,
   parseYouTubeUrl, parseTime, formatTime, validateProject,
-  projectAnnotators, projectTags, filterVideos, QUESTION_STATUS_FILTERS,
+  projectAnnotators, filterVideos, QUESTION_STATUS_FILTERS,
 } from "./core.js";
 import { initDownloads } from "./downloads.js";
 
@@ -33,7 +33,7 @@ let downloadUI = null;
 let latestExport = null;
 let sidebarCollapsed = false;
 // Library filters are a view preference only; they never change or hide saved annotations.
-const libraryFilter = { query: "", annotator: "", tag: "", status: "" };
+const libraryFilter = { query: "", annotator: "", status: "" };
 const storedValues = new Map();
 
 function setSidebarCollapsed(collapsed, persist = true) {
@@ -233,16 +233,12 @@ function videoDetail(video) {
 
 function renderLibraryFilters() {
   const annotators = projectAnnotators(project.videos);
-  const tags = projectTags(project.videos);
-  // Drop a selection whose last matching record was deleted or re-tagged.
+  // Drop a selection whose last matching clip was deleted.
   if (!annotators.some((item) => item.key === libraryFilter.annotator)) libraryFilter.annotator = "";
-  if (!tags.includes(libraryFilter.tag)) libraryFilter.tag = "";
   const option = (value, label) => { const node = el("option", "", label); node.value = value; return node; };
   $("library-annotator").replaceChildren(option("", "All annotators"), ...annotators.map((item) => option(item.key, item.label || "Unattributed")));
-  $("library-tag").replaceChildren(option("", tags.length ? "All tags" : "No tags yet"), ...tags.map((tag) => option(tag, tag)));
   $("library-status").replaceChildren(option("", "Any question status"), ...Object.entries(QUESTION_STATUS_FILTERS).map(([value, label]) => option(value, label)));
-  for (const key of ["annotator", "tag", "status"]) $(`library-${key}`).value = libraryFilter[key];
-  $("library-tag").disabled = !tags.length;
+  for (const key of ["annotator", "status"]) $(`library-${key}`).value = libraryFilter[key];
   $("library-filters").hidden = !project.videos.length;
 }
 
@@ -1005,12 +1001,12 @@ $("cancel-edit").addEventListener("click", async () => {
 });
 $("clips-search").addEventListener("input", renderClips);
 function clearLibraryFilters(render = true) {
-  Object.assign(libraryFilter, { query: "", annotator: "", tag: "", status: "" });
+  Object.assign(libraryFilter, { query: "", annotator: "", status: "" });
   $("library-search").value = "";
   if (render) renderVideos();
 }
 $("library-search").addEventListener("input", () => { libraryFilter.query = $("library-search").value; renderVideos(); });
-for (const key of ["annotator", "tag", "status"]) $(`library-${key}`).addEventListener("change", () => { libraryFilter[key] = $(`library-${key}`).value; renderVideos(); });
+for (const key of ["annotator", "status"]) $(`library-${key}`).addEventListener("change", () => { libraryFilter[key] = $(`library-${key}`).value; renderVideos(); });
 $("clear-library-filters").addEventListener("click", () => clearLibraryFilters());
 $("download-all-clips").addEventListener("click", () => downloadUI?.openAll());
 $("project-name").addEventListener("input", () => { project.project_name = $("project-name").value; persistProject(); });

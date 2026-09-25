@@ -289,10 +289,6 @@ export function projectAnnotators(videos) {
     .sort((a, b) => (a.label === "") - (b.label === "") || a.label.localeCompare(b.label));
 }
 
-export function projectTags(videos) {
-  return [...new Set(videos.flatMap((video) => video.clips.flatMap((clip) => clip.tags)))].sort((a, b) => a.localeCompare(b));
-}
-
 export const QUESTION_STATUS_FILTERS = {
   "has-drafts": "Has Draft questions",
   "all-ready": "All questions Ready",
@@ -300,13 +296,12 @@ export const QUESTION_STATUS_FILTERS = {
   "no-clips": "No clips yet",
 };
 
-/** Keep videos matching every active filter: text, annotator key, clip tag, and question status. */
-export function filterVideos(videos, { query = "", annotator = "", tag = "", status = "" } = {}) {
+/** Keep videos matching every active filter: title/ID text, annotator key, and question status. */
+export function filterVideos(videos, { query = "", annotator = "", status = "" } = {}) {
   const needle = query.trim().toLocaleLowerCase();
   return videos.filter((video) => {
     if (needle && !`${video.title} ${video.video_id}`.toLocaleLowerCase().includes(needle)) return false;
     if (annotator && !video.clips.some((clip) => annotatorKey(clip.annotator) === annotator)) return false;
-    if (tag && !video.clips.some((clip) => clip.tags.includes(tag))) return false;
     const questions = video.clips.flatMap((clip) => clip.questions);
     if (status === "has-drafts") return questions.some((q) => q.status === "draft");
     if (status === "all-ready") return questions.length > 0 && questions.every((q) => q.status === "ready");

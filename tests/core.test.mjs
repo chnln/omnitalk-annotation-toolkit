@@ -196,8 +196,8 @@ test("1.1 imports attribute clips to the project annotator; 1.2 keeps per-clip a
   assert.equal(annotatorLabel({ id: "", name: "" }), "");
 });
 
-test("library filters combine text, annotator, tag, and question status", async () => {
-  const { createQuestion, filterVideos, projectAnnotators, projectTags } = await import("../src/annotation_toolkit/static/core.js");
+test("library filters combine title/ID text, annotator, and question status", async () => {
+  const { createQuestion, filterVideos, projectAnnotators } = await import("../src/annotation_toolkit/static/core.js");
   const nan = { id: "", name: "Nan" }; const erik = { id: "E1", name: "Erik" };
   const video = (id, title) => { const v = createVideo(parseYouTubeUrl(id)); v.title = title; return v; };
   const a = video("M7lc1UVf-VE", "Dinner date");
@@ -218,12 +218,10 @@ test("library filters combine text, annotator, tag, and question status", async 
   assert.deepEqual(authors.map((x) => x.label), ["Erik (E1)", "Nan", ""]);
   assert.deepEqual(ids({ annotator: authors[0].key }), ["Dinner date"]);
   assert.deepEqual(ids({ annotator: authors[2].key }), ["Taskmaster"], "unattributed clips are filterable");
-  assert.deepEqual(projectTags(all), ["range-fix"]);
-  assert.deepEqual(ids({ tag: "range-fix" }), ["Dinner date"]);
   assert.deepEqual(ids({ status: "has-drafts" }), ["Taskmaster"]);
   assert.deepEqual(ids({ status: "all-ready" }), ["Dinner date"]);
   assert.deepEqual(ids({ status: "missing-questions" }), ["Taskmaster"]);
   assert.deepEqual(ids({ status: "no-clips" }), ["Empty video"]);
   assert.deepEqual(ids({ annotator: authors[1].key, status: "all-ready" }), ["Dinner date"]);
-  assert.deepEqual(ids({ annotator: authors[1].key, tag: "range-fix", query: "task" }), []);
+  assert.deepEqual(ids({ annotator: authors[0].key, query: "task" }), []);
 });

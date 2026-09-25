@@ -712,10 +712,7 @@ test("library filters narrow the video list without changing the project or the 
   w.node("library-annotator").value = erik.value; await w.node("library-annotator").fire("change");
   assert.deepEqual(visibleIds(), ["jNQXAC9IVRw"]);
   assert.equal(w.node("library-filter-count").textContent, "1 of 3 videos");
-  w.node("library-annotator").value = ""; await w.node("library-annotator").fire("change");
-  w.node("library-tag").value = "range-fix"; await w.node("library-tag").fire("change");
-  assert.deepEqual(visibleIds(), ["M7lc1UVf-VE"]);
-  w.node("library-status").value = "has-drafts"; await w.node("library-status").fire("change");
+  w.node("library-status").value = "missing-questions"; await w.node("library-status").fire("change");
   assert.deepEqual(visibleIds(), []);
   assert.equal(w.node("video-list").children[0].textContent, "No videos match these filters.");
   await w.node("clear-library-filters").click();
