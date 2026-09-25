@@ -431,14 +431,18 @@ def validate_export(data):
             raise DownloadError("Duplicate record IDs.")
         ids.add(normalized)
 
+    def annotator(value, label):
+        obj(value, label)
+        text(value.get("id"), f"{label} ID", 200)
+        text(value.get("name"), f"{label} name", 200)
+
     obj(data, "Project")
-    if data.get("schema_version") not in ("1.0", "1.1"):
-        raise DownloadError("Unsupported annotation schema; expected version 1.0 or 1.1.")
+    version = data.get("schema_version")
+    if version not in ("1.0", "1.1", "1.2"):
+        raise DownloadError("Unsupported annotation schema; expected version 1.0, 1.1 or 1.2.")
     identifier(data.get("project_id"))
     text(data.get("project_name"), "Project name", 200)
-    obj(data.get("annotator"), "Annotator")
-    text(data["annotator"].get("id"), "Annotator ID", 200)
-    text(data["annotator"].get("name"), "Annotator name", 200)
+    annotator(data.get("annotator"), "Annotator")
     videos = data.get("videos")
     if not isinstance(videos, list) or len(videos) > 1000:
         raise DownloadError("Project videos must be a list of at most 1000 entries.")
@@ -477,7 +481,9 @@ def validate_export(data):
                 raise DownloadError("Clip tags must be a list with at most 50 entries.")
             for tag in tags:
                 text(tag, "Tag", 100)
-            if data["schema_version"] == "1.1":
+            if version == "1.2":
+                annotator(clip.get("annotator"), "Clip annotator")
+            if version in ("1.1", "1.2"):
                 if clip.get("subtitle_status") not in ("unknown", "none", "present", "masked"):
                     raise DownloadError("Invalid subtitle status.")
                 questions = clip.get("questions")

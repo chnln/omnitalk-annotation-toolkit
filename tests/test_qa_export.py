@@ -33,3 +33,21 @@ class QuestionExportTests(unittest.TestCase):
             p['videos'][0]['clips'][0]['questions'][0].update(change)
             with self.subTest(change=change), self.assertRaises(DownloadError):
                 validate_export(p)
+
+    def test_schema_1_2_requires_clip_annotators(self):
+        p = self.fixture()
+        p['schema_version'] = '1.2'
+        clip = p['videos'][0]['clips'][0]
+        clip['annotator'] = {'id': 'P001', 'name': 'Nan'}
+        self.assertEqual(validate_export(copy.deepcopy(p)), p)
+        for path, value in ((('annotator',), None), (('annotator',), 'Nan'), (('annotator',), {'id': 1, 'name': ''})):
+            broken = copy.deepcopy(p)
+            target = broken['videos'][0]['clips'][0]
+            for key in path[:-1]:
+                target = target[key]
+            if value is None:
+                del target[path[-1]]
+            else:
+                target[path[-1]] = value
+            with self.subTest(path=path, value=value), self.assertRaises(DownloadError):
+                validate_export(broken)

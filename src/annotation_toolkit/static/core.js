@@ -1,5 +1,6 @@
 /** Pure annotation data helpers. No network, storage, or DOM access. */
-export const SCHEMA_VERSION = "1.1";
+export const SCHEMA_VERSION = "1.2";
+const LEGACY_VERSIONS = ["1.0", "1.1"];
 export const STORAGE_KEY = "omnitalk.annotation.project.v1";
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
@@ -121,11 +122,26 @@ function clipFields({ start_seconds, end_seconds, note = "", tags: clipTags = []
   return { start_seconds: start, end_seconds: end, note: text(note, "Note", 20000), tags: tags(clipTags) };
 }
 
-export function createClip(input, duration_seconds = null) {
+/** Clips keep a copy of the annotator who created them; later profile edits do not rewrite authorship. */
+const annotatorCopy = (annotator = {}) => ({ id: annotator.id ?? "", name: annotator.name ?? "" });
+
+function annotatorRecord(value, label) {
+  object(value, label);
+  return { id: text(value.id, `${label} ID`, 200), name: text(value.name, `${label} name`, 200) };
+}
+
+/** Display label: "Name (ID)", either part alone, or "" when unattributed. */
+export function annotatorLabel(annotator) {
+  const name = annotator?.name?.trim() ?? "";
+  const id = annotator?.id?.trim() ?? "";
+  return name && id ? `${name} (${id})` : name || id;
+}
+
+export function createClip(input, duration_seconds = null, annotator = {}) {
   object(input, "Clip");
   const fields = clipFields(input, duration_seconds);
   const timestamp = now();
-  return { id: uuid(), ...fields, subtitle_status: "unknown", questions: [], created_at: timestamp, updated_at: timestamp };
+  return { id: uuid(), ...fields, annotator: annotatorCopy(annotator), subtitle_status: "unknown", questions: [], created_at: timestamp, updated_at: timestamp };
 }
 
 function object(value, label) {
@@ -149,7 +165,7 @@ function timestamp(value, label) {
 /** Validate untrusted JSON and return only the supported schema, with fresh objects. */
 export function validateProject(data) {
   object(data, "Project");
-  if (!["1.0", SCHEMA_VERSION].includes(data.schema_version)) throw new Error(`Unsupported file version. Expected schema_version: "${SCHEMA_VERSION}".`);
+  if (![...LEGACY_VERSIONS, SCHEMA_VERSION].includes(data.schema_version)) throw new Error(`Unsupported file version. Expected schema_version: "${SCHEMA_VERSION}".`);
   const ids = new Set();
   function recordId(value, label) {
     if (typeof value !== "string" || !UUID.test(value)) throw new Error(`${label} must be a valid UUID.`);
@@ -170,6 +186,8 @@ export function validateProject(data) {
     videos: [],
   };
   if (data.exported_at !== undefined) timestamp(data.exported_at, "Export time");
+  // Before 1.2 only the project had an annotator, so it is the best available author for older clips.
+  const legacyAuthor = data.schema_version === SCHEMA_VERSION ? null : project.annotator;
   let totalClips = 0;
   project.videos = data.videos.map((video) => {
     object(video, "Video");
@@ -195,6 +213,7 @@ export function validateProject(data) {
         return {
           id: recordId(clip.id, "Clip ID"),
           ...clipFields(clip, duration),
+          annotator: legacyAuthor ? annotatorCopy(legacyAuthor) : annotatorRecord(clip.annotator, "Clip annotator"),
           ...validateClipQA(clip, data.schema_version, recordId),
           created_at: timestamp(clip.created_at, "Clip creation time"),
           updated_at: timestamp(clip.updated_at, "Clip update time"),
@@ -255,4 +274,39 @@ function validateClipQA(clip, version, recordId) {
   if (!Object.hasOwn(SUBTITLE_STATUSES, clip.subtitle_status)) throw new Error("Invalid clip subtitle status.");
   if (!Array.isArray(clip.questions) || clip.questions.length > 100) throw new Error("A clip supports up to 100 questions.");
   return { subtitle_status: clip.subtitle_status, questions: clip.questions.map(q => validateQuestion(q, recordId)) };
+}
+
+/* Library filters: pure helpers so the sidebar and tests share one definition. */
+const annotatorKey = (annotator) => JSON.stringify([annotator?.id ?? "", annotator?.name ?? ""]);
+
+/** Distinct clip annotators (video collectors), sorted by label; unattributed clips get label "". */
+export function projectAnnotators(videos) {
+  const found = new Map();
+  for (const video of videos) {
+    for (const clip of video.clips) found.set(annotatorKey(clip.annotator), annotatorLabel(clip.annotator));
+  }
+  return [...found].map(([key, label]) => ({ key, label }))
+    .sort((a, b) => (a.label === "") - (b.label === "") || a.label.localeCompare(b.label));
+}
+
+export const QUESTION_STATUS_FILTERS = {
+  "has-drafts": "Has Draft questions",
+  "all-ready": "All questions Ready",
+  "missing-questions": "Clips without questions",
+  "no-clips": "No clips yet",
+};
+
+/** Keep videos matching every active filter: title/ID text, annotator key, and question status. */
+export function filterVideos(videos, { query = "", annotator = "", status = "" } = {}) {
+  const needle = query.trim().toLocaleLowerCase();
+  return videos.filter((video) => {
+    if (needle && !`${video.title} ${video.video_id}`.toLocaleLowerCase().includes(needle)) return false;
+    if (annotator && !video.clips.some((clip) => annotatorKey(clip.annotator) === annotator)) return false;
+    const questions = video.clips.flatMap((clip) => clip.questions);
+    if (status === "has-drafts") return questions.some((q) => q.status === "draft");
+    if (status === "all-ready") return questions.length > 0 && questions.every((q) => q.status === "ready");
+    if (status === "missing-questions") return video.clips.some((clip) => !clip.questions.length);
+    if (status === "no-clips") return !video.clips.length;
+    return true;
+  });
 }

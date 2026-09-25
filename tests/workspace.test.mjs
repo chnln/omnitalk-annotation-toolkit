@@ -672,3 +672,53 @@ test("question drafts autosave across videos/reload and survive clip edits and e
   await restored.api.exportProject();
   assert.equal(restored.exports[0].videos[0].clips[0].questions[0].prompt,"Who speaks next?");
 });
+
+test("clips record their annotator, keep it across edits and profile changes, and name collectors in the library", async () => {
+  const w = workspace();
+  w.node("annotator-name").value = "Nan"; await w.node("annotator-name").fire("input");
+  w.api.addVideo("M7lc1UVf-VE"); w.fill("0", "10", "first"); w.api.saveClip();
+  await w.node("qa-add").click();
+  const video = () => w.api.state().project.videos[0];
+  const detail = () => w.libraryItem("M7lc1UVf-VE").querySelector(".video-item-detail").textContent;
+  assert.match(detail(), / · Nan$/);
+  w.node("annotator-name").value = "Leixin"; await w.node("annotator-name").fire("input");
+  await w.api.editClip(video().clips[0]); w.fill("1", "10", "edited by Leixin"); w.api.saveClip();
+  assert.equal(video().clips[0].note, "edited by Leixin");
+  assert.deepEqual(video().clips[0].annotator, { id: "", name: "Nan" }, "editing must not reassign the clip annotator");
+  assert.equal(Object.hasOwn(video().clips[0].questions[0], "annotator"), false, "questions carry no annotator");
+  w.fill("20", "30", "second"); w.api.saveClip();
+  assert.match(detail(), / · 2 annotators$/);
+  assert.equal(w.node("clips-body").children[0].children.length, 5, "the clips table has no annotator column");
+  await w.api.exportProject();
+  const exported = core.validateProject(w.exports[0]);
+  assert.equal(exported.schema_version, "1.2");
+  assert.equal(exported.videos[0].clips[0].annotator.name, "Nan");
+});
+
+test("library filters narrow the video list without changing the project or the active video", async () => {
+  const w = workspace();
+  w.node("annotator-name").value = "Nan"; await w.node("annotator-name").fire("input");
+  w.api.addVideo("M7lc1UVf-VE"); w.fill("0", "10", "a", "range-fix"); w.api.saveClip();
+  w.node("annotator-name").value = "Erik"; await w.node("annotator-name").fire("input");
+  w.api.addVideo("jNQXAC9IVRw"); w.fill("0", "5", "b"); w.api.saveClip();
+  await w.node("qa-add").click();
+  w.api.addVideo("dQw4w9WgXcQ");
+  const visibleIds = () => w.node("video-list").children.map((row) => row.dataset.videoId).filter(Boolean)
+    .map((id) => w.api.state().project.videos.find((v) => v.id === id).video_id);
+  assert.equal(w.node("library-filters").hidden, false);
+  assert.deepEqual(visibleIds(), ["M7lc1UVf-VE", "jNQXAC9IVRw", "dQw4w9WgXcQ"]);
+  assert.equal(w.node("library-filter-summary").hidden, true);
+  const erik = w.node("library-annotator").children.find((o) => o.textContent === "Erik");
+  w.node("library-annotator").value = erik.value; await w.node("library-annotator").fire("change");
+  assert.deepEqual(visibleIds(), ["jNQXAC9IVRw"]);
+  assert.equal(w.node("library-filter-count").textContent, "1 of 3 videos");
+  w.node("library-status").value = "missing-questions"; await w.node("library-status").fire("change");
+  assert.deepEqual(visibleIds(), []);
+  assert.equal(w.node("video-list").children[0].textContent, "No videos match these filters.");
+  await w.node("clear-library-filters").click();
+  assert.deepEqual(visibleIds(), ["M7lc1UVf-VE", "jNQXAC9IVRw", "dQw4w9WgXcQ"]);
+  w.node("library-search").value = "dQw4"; await w.node("library-search").fire("input");
+  assert.deepEqual(visibleIds(), ["dQw4w9WgXcQ"]);
+  assert.equal(w.api.state().project.videos.length, 3);
+  assert.equal(w.api.state().project.videos.find((v) => v.id === w.api.state().activeId).video_id, "dQw4w9WgXcQ");
+});
