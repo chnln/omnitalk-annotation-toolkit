@@ -1,6 +1,7 @@
 import {
   STORAGE_KEY, LIMITS, createProject, createVideo, createClip, createQuestion, questionReadyError, MODALITIES,
   parseYouTubeUrl, parseTime, formatTime, validateProject,
+  annotatorLabel, projectAnnotators, projectTags, filterVideos, QUESTION_STATUS_FILTERS,
 } from "./core.js";
 import { initDownloads } from "./downloads.js";
 
@@ -31,6 +32,8 @@ let recoveryText = null;
 let downloadUI = null;
 let latestExport = null;
 let sidebarCollapsed = false;
+// Library filters are a view preference only; they never change or hide saved annotations.
+const libraryFilter = { query: "", annotator: "", tag: "", status: "" };
 const storedValues = new Map();
 
 function setSidebarCollapsed(collapsed, persist = true) {
@@ -220,11 +223,45 @@ function isDirtyDraft(draft, video) {
   } catch { return true; }
 }
 
+const authorText = (record) => annotatorLabel(record.annotator) || "Unattributed";
+
+function videoDetail(video) {
+  const parts = [`${video.clips.length} ${video.clips.length === 1 ? "clip" : "clips"}`, video.duration_seconds ? formatTime(video.duration_seconds) : "Unknown duration"];
+  const authors = projectAnnotators([video]);
+  if (authors.length === 1) parts.push(authors[0].label || "Unattributed");
+  else if (authors.length > 1) parts.push(`${authors.length} annotators`);
+  return parts.join(" · ");
+}
+
+function renderLibraryFilters() {
+  const annotators = projectAnnotators(project.videos);
+  const tags = projectTags(project.videos);
+  // Drop a selection whose last matching record was deleted or re-tagged.
+  if (!annotators.some((item) => item.key === libraryFilter.annotator)) libraryFilter.annotator = "";
+  if (!tags.includes(libraryFilter.tag)) libraryFilter.tag = "";
+  const option = (value, label) => { const node = el("option", "", label); node.value = value; return node; };
+  $("library-annotator").replaceChildren(option("", "All annotators"), ...annotators.map((item) => option(item.key, item.label || "Unattributed")));
+  $("library-tag").replaceChildren(option("", tags.length ? "All tags" : "No tags yet"), ...tags.map((tag) => option(tag, tag)));
+  $("library-status").replaceChildren(option("", "Any question status"), ...Object.entries(QUESTION_STATUS_FILTERS).map(([value, label]) => option(value, label)));
+  for (const key of ["annotator", "tag", "status"]) $(`library-${key}`).value = libraryFilter[key];
+  $("library-tag").disabled = !tags.length;
+  $("library-filters").hidden = !project.videos.length;
+}
+
 function renderVideos() {
   $("video-count").textContent = project.videos.length;
   $("library-empty").hidden = !!project.videos.length;
   $("export-button").disabled = !project.videos.length;
-  $("video-list").replaceChildren(...project.videos.map((video) => {
+  renderLibraryFilters();
+  const visible = filterVideos(project.videos, libraryFilter);
+  const filtering = Object.values(libraryFilter).some((value) => value.trim());
+  $("library-filter-summary").hidden = !filtering;
+  $("library-filter-count").textContent = `${visible.length} of ${project.videos.length} videos`;
+  if (filtering && !visible.length) {
+    $("video-list").replaceChildren(el("p", "library-no-results", "No videos match these filters."));
+    return;
+  }
+  $("video-list").replaceChildren(...visible.map((video) => {
     const row = el("div", "video-library-row");
     row.dataset.videoId = video.id;
     const button = el("button", `video-item${video.id === activeId ? " active" : ""}`);
@@ -236,7 +273,7 @@ function renderVideos() {
     const thumbnail = el("span", "video-item-thumbnail");
     thumbnail.append(icon("video"));
     const info = el("span", "video-item-info");
-    info.append(el("span", "video-item-title", video.title || video.video_id), el("span", "video-item-detail", `${video.clips.length} ${video.clips.length === 1 ? "clip" : "clips"} · ${video.duration_seconds ? formatTime(video.duration_seconds) : "Unknown duration"}`));
+    info.append(el("span", "video-item-title", video.title || video.video_id), el("span", "video-item-detail", videoDetail(video)));
     button.append(thumbnail, info);
     if (video.id === activeId) button.append(el("span", "video-item-indicator"));
     button.addEventListener("click", () => selectVideo(video.id));
@@ -253,7 +290,7 @@ function updateVideoMetadata(video) {
     button.title = video.title;
     button.setAttribute("aria-label", `Select video: ${video.title}`);
     button.querySelector(".video-item-title").textContent = video.title || video.video_id;
-    button.querySelector(".video-item-detail").textContent = `${video.clips.length} ${video.clips.length === 1 ? "clip" : "clips"} · ${video.duration_seconds ? formatTime(video.duration_seconds) : "Unknown duration"}`;
+    button.querySelector(".video-item-detail").textContent = videoDetail(video);
     const remove = row.querySelector(".delete-video-button");
     remove.title = `Delete video: ${video.title}`;
     remove.setAttribute("aria-label", remove.title);
@@ -283,7 +320,7 @@ function renderClips() {
     ? `Clips for ${video.title || video.video_id}, sorted by start time.`
     : "Load a video, then add clips to this list.";
   const query = $("clips-search").value.trim().toLocaleLowerCase();
-  const clips = allClips.filter((clip) => `${clip.note} ${clip.tags.join(" ")} ${(clip.questions || []).map(q => q.prompt).join(" ")}`.toLocaleLowerCase().includes(query));
+  const clips = allClips.filter((clip) => [clip.note, ...clip.tags, ...clip.questions.map((q) => q.prompt), ...[clip, ...clip.questions].map(authorText)].join(" ").toLocaleLowerCase().includes(query));
   $("clip-count").textContent = allClips.length;
   $("clips-empty").hidden = allClips.length > 0;
   $("clips-table-container").hidden = !clips.length;
@@ -309,6 +346,12 @@ function renderClips() {
     qaButton.type = "button";
     qaButton.addEventListener("click", () => { qaClipId = clip.id; qaQuestionId = null; setQACollapsed(false); renderQA(); $("qa-panel").scrollIntoView({ behavior: "smooth", block: "start" }); });
     noteCell.append(qaButton);
+    const authorCell = el("td");
+    const author = el("div", `clip-annotator${annotatorLabel(clip.annotator) ? "" : " empty"}`, authorText(clip));
+    const questionAuthors = [...new Set(clip.questions.map(authorText))].filter((label) => label !== authorText(clip));
+    if (questionAuthors.length) author.title = `Questions also by ${questionAuthors.join(", ")}`;
+    authorCell.append(author);
+    if (questionAuthors.length) authorCell.append(el("div", "clip-annotator-more", `+ questions by ${questionAuthors.join(", ")}`));
     const tagCell = el("td");
     const tags = el("div", "tag-list");
     tags.append(...clip.tags.map((tag) => { const item = el("span", "clip-tag", tag); item.title = tag; return item; }));
@@ -317,7 +360,7 @@ function renderClips() {
     const actions = el("div", "row-actions");
     actions.append(actionButton(`Download clip ${number}`, "download", () => downloadUI?.open(clip)), actionButton(`Edit clip ${number}`, "edit", () => editClip(clip)), actionButton(`Delete clip ${number}`, "trash", () => deleteClip(clip), "delete-clip"));
     actionsCell.append(actions);
-    row.append(numberCell, timeCell, noteCell, tagCell, actionsCell);
+    row.append(numberCell, timeCell, noteCell, authorCell, tagCell, actionsCell);
     return row;
   }));
   renderTimeline();
@@ -652,7 +695,7 @@ function draftClip() {
   return createClip({
     start_seconds: parseTime($("clip-start").value), end_seconds: parseTime($("clip-end").value),
     note: $("clip-note").value, tags: splitTags($("clip-tags").value),
-  }, knownDuration());
+  }, knownDuration(), project.annotator);
 }
 
 function updateSelectionDuration() {
@@ -678,7 +721,8 @@ function saveClip(event) {
     if (existing < 0 && (video.clips.length >= LIMITS.clipsPerVideo || project.videos.reduce((sum, item) => sum + item.clips.length, 0) >= LIMITS.totalClips)) {
       throw new Error("This batch has reached the clip limit. Export it before starting another batch.");
     }
-    if (existing >= 0) video.clips[existing] = { ...video.clips[existing], ...clip, questions: video.clips[existing].questions, subtitle_status: video.clips[existing].subtitle_status, id: editingId, created_at: video.clips[existing].created_at };
+    // Editing keeps the original author; attribution records who created the clip.
+    if (existing >= 0) video.clips[existing] = { ...video.clips[existing], ...clip, annotator: video.clips[existing].annotator, questions: video.clips[existing].questions, subtitle_status: video.clips[existing].subtitle_status, id: editingId, created_at: video.clips[existing].created_at };
     else video.clips.push(clip);
     qaClipId = existing >= 0 ? editingId : clip.id;
     reconcileDuration(video);
@@ -797,6 +841,7 @@ async function importProject(file) {
     drafts = {};
     mediaDuration = 0;
     $("clips-search").value = "";
+    clearLibraryFilters(false);
     renderProfile();
     renderCurrentVideo();
     persistProject(false);
@@ -833,6 +878,7 @@ function qaSave(q) {
   clip.updated_at = time;
   persistProject();
   renderQAList();
+  if (libraryFilter.status) renderVideos();
   const state = $("qa-state");
   if (state && q) state.textContent = (storageBlocked ? "Draft · export a backup" : "Draft · edits saved locally");
 }
@@ -846,7 +892,7 @@ function renderQAList() {
   $("qa-list").replaceChildren(...clip.questions.map((q, i) => {
     const button = qaButton("", () => { qaQuestionId = q.id; renderQAEditor(); renderQAList(); }, `qa-question${q.id === qaQuestionId ? " active" : ""}`);
     button.setAttribute("aria-current", String(q.id === qaQuestionId));
-    button.append(el("span", "qa-question-number", `Q${i + 1} · ${q.status === "ready" ? "Ready" : "Draft"}`), el("strong", "", q.prompt || "Untitled question"));
+    button.append(el("span", "qa-question-number", `Q${i + 1} · ${q.status === "ready" ? "Ready" : "Draft"}`), el("strong", "", q.prompt || "Untitled question"), el("span", "qa-question-author", authorText(q)));
     return button;
   }));
 }
@@ -924,9 +970,10 @@ function renderQAEditor() {
   const error = el("p", "field-error"); error.setAttribute("role", "alert");
   const footer = el("div", "qa-editor-footer");
   const state = el("span", "qa-state", q.status === "ready" ? "Ready · author-complete" : (storageBlocked ? "Draft · export a backup" : "Draft · edits saved locally")); state.id = "qa-state";
-  footer.append(state, qaButton("Mark Ready", () => {
+  footer.append(state, el("span", "qa-author", `Written by ${authorText(q)}`), qaButton("Mark Ready", () => {
     const message = questionReadyError(q); if (message) { error.textContent = message; return; }
     qaSave(q); q.status = "ready"; persistProject(); renderQAList(); renderQAEditor();
+    if (libraryFilter.status) renderVideos();
   }), qaButton("Delete question", async () => {
     if (!await confirmAction("Delete this question?", "The question, its options and evidence labels will be removed from this clip.", "Delete question")) return;
     clip.questions = clip.questions.filter(item => item.id !== q.id); qaQuestionId = null; qaSave(); renderQA(); renderClips();
@@ -936,7 +983,7 @@ function renderQAEditor() {
 $("qa-add").addEventListener("click", () => {
   const clip = qaClip(); if (!clip || clip.questions.length >= 100) return;
   setQACollapsed(false);
-  const q = createQuestion(); clip.questions.push(q); qaQuestionId = q.id; qaSave(q); renderClips();
+  const q = createQuestion(project.annotator); clip.questions.push(q); qaQuestionId = q.id; qaSave(q); renderClips();
 });
 $("qa-clip-select").addEventListener("change", () => { qaClipId = $("qa-clip-select").value; qaQuestionId = null; renderQA(); });
 $("qa-subtitles").addEventListener("change", () => { const clip = qaClip(); if (clip) { clip.subtitle_status = $("qa-subtitles").value; qaSave(); } });
@@ -965,6 +1012,14 @@ $("cancel-edit").addEventListener("click", async () => {
   resetDraft(); renderClips();
 });
 $("clips-search").addEventListener("input", renderClips);
+function clearLibraryFilters(render = true) {
+  Object.assign(libraryFilter, { query: "", annotator: "", tag: "", status: "" });
+  $("library-search").value = "";
+  if (render) renderVideos();
+}
+$("library-search").addEventListener("input", () => { libraryFilter.query = $("library-search").value; renderVideos(); });
+for (const key of ["annotator", "tag", "status"]) $(`library-${key}`).addEventListener("change", () => { libraryFilter[key] = $(`library-${key}`).value; renderVideos(); });
+$("clear-library-filters").addEventListener("click", () => clearLibraryFilters());
 $("download-all-clips").addEventListener("click", () => downloadUI?.openAll());
 $("project-name").addEventListener("input", () => { project.project_name = $("project-name").value; persistProject(); });
 for (const field of ["id", "name"]) $("annotator-" + field).addEventListener("input", () => {
