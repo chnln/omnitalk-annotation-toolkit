@@ -9,7 +9,8 @@ const isStaticMode = document.body.dataset.mode === "static";
 
 const $ = (id) => document.getElementById(id);
 const WORKSPACE_KEY = `${STORAGE_KEY}.workspace`;
-const SHELF_KEY = `${STORAGE_KEY}.shelf`;
+const SHELF_KEY = `${STORAGE_KEY}.shelf`; // legacy: read once to migrate
+const PROJECTS_KEY = "omnitalk.annotation.projects.v2"; // { version: 2, projects: [...every loaded file] }
 const SIDEBAR_KEY = "omnitalk.annotation.sidebar.collapsed.v1";
 const draftFields = ["clip-start", "clip-end", "clip-note", "clip-tags"];
 const clock = (seconds) => formatTime(seconds, { milliseconds: true });
@@ -115,7 +116,9 @@ function readStorage(key) {
   return raw;
 }
 
-function writeStorage(key, value) {
+/** With `soft`, running out of space just returns false: the caller can refuse the change and autosave keeps working. */
+function writeStorage(key, value, { soft = false } = {}) {
+  const hadBackupNeed = memoryNeedsBackup;
   memoryNeedsBackup = true;
   if (storageBlocked) return false;
   try {
@@ -133,6 +136,7 @@ function writeStorage(key, value) {
     $("storage-warning").hidden = true;
     return true;
   } catch {
+    if (soft) { memoryNeedsBackup = hadBackupNeed; return false; }
     storageBlocked = true;
     storageWarning("Browser storage is unavailable or full. Autosave is paused; your annotations are still on this page. Export JSON to keep them.");
     return false;
@@ -141,12 +145,10 @@ function writeStorage(key, value) {
 
 function persistProject(touch = true) {
   if (touch) project.updated_at = new Date().toISOString();
-  return writeStorage(STORAGE_KEY, project);
+  return writeStorage(PROJECTS_KEY, projectsPayload());
 }
 
-function persistShelf() {
-  return writeStorage(SHELF_KEY, shelf);
-}
+const projectsPayload = (list = [project, ...shelf]) => ({ version: 2, projects: list });
 
 function persistWorkspace() {
   return writeStorage(WORKSPACE_KEY, { project_id: project.project_id, active_video_id: activeId, drafts, other_drafts: draftShelf });
@@ -167,32 +169,50 @@ function validDrafts(item, saved) {
 }
 
 function restoreStorage() {
+  let all = [];
+  let legacy = false;
   let raw;
   try {
-    raw = readStorage(STORAGE_KEY);
-    if (raw) project = validateProject(JSON.parse(raw));
+    raw = readStorage(PROJECTS_KEY);
+    if (raw) {
+      const stored = JSON.parse(raw);
+      if (stored?.version !== 2 || !Array.isArray(stored.projects)) throw new Error("Unsupported storage format.");
+      all = stored.projects.map(validateProject);
+    } else {
+      legacy = true;
+      raw = readStorage(STORAGE_KEY);
+      if (raw) all.push(validateProject(JSON.parse(raw)));
+      const shelfRaw = readStorage(SHELF_KEY);
+      if (shelfRaw) {
+        const stored = JSON.parse(shelfRaw);
+        if (!Array.isArray(stored)) throw new Error("The loaded-file list is not an array.");
+        all.push(...stored.map(validateProject));
+      }
+    }
   } catch {
+    all = [];
     storageBlocked = true;
     recoveryText = raw || null;
     storageWarning(raw ? "The saved project could not be read. Its original data is untouched. Download the original draft, and export any new annotations as JSON." : "Browser storage is unavailable. Export JSON to keep your annotations.");
     $("recover-storage").hidden = !recoveryText;
   }
-  try {
-    const shelfRaw = readStorage(SHELF_KEY);
-    if (shelfRaw) {
-      const stored = JSON.parse(shelfRaw);
-      if (!Array.isArray(stored)) throw new Error("The loaded-file list is not an array.");
-      shelf = stored.map(validateProject).filter((item) => item.project_id !== project.project_id);
-    }
-  } catch {
-    storageBlocked = true;
-    storageWarning("Other loaded files could not be read. Their original data is untouched. Export your current annotations; autosave is paused.");
-  }
-  activeId = project.videos[0]?.id ?? null;
+  all = all.filter((item, index) => all.findIndex((other) => other.project_id === item.project_id) === index);
+  let workspace = null;
   try {
     const workspaceRaw = readStorage(WORKSPACE_KEY);
-    if (!workspaceRaw) return;
-    const workspace = JSON.parse(workspaceRaw);
+    if (workspaceRaw) workspace = JSON.parse(workspaceRaw);
+  } catch {
+    storageBlocked = true;
+    storageWarning("The unfinished clip draft could not be restored. Saved clips are still available. Export a backup; the original browser data has not been overwritten.");
+  }
+  project = all.find((item) => item.project_id === workspace?.project_id) ?? all[0] ?? project;
+  shelf = all.filter((item) => item !== project);
+  if (legacy && all.length && !storageBlocked && writeStorage(PROJECTS_KEY, projectsPayload(), { soft: true })) {
+    try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(SHELF_KEY); } catch { /* old copies are ignored once the new key exists */ }
+  }
+  activeId = project.videos[0]?.id ?? null;
+  if (!workspace) return;
+  try {
     if (workspace.project_id === project.project_id && project.videos.some((video) => video.id === workspace.active_video_id)) activeId = workspace.active_video_id;
     const savedDrafts = (item) => (workspace.project_id === item.project_id ? workspace.drafts : workspace.other_drafts?.[item.project_id]) ?? {};
     drafts = validDrafts(project, savedDrafts(project));
@@ -878,12 +898,7 @@ function showProject(next, keep) {
   renderCurrentVideo();
   if (currentVideo()) loadPlayer(currentVideo());
   else clearPlayer();
-  // Two storage keys cannot be written atomically. Write a superset first so a failed (e.g. over-quota)
-  // write leaves the previous copy of every project intact, then narrow it down.
-  writeStorage(SHELF_KEY, [project, ...shelf]);
-  persistProject(false);
-  persistShelf();
-  persistWorkspace();
+  persistWorkspace(); // which project is open lives beside the drafts; the project list itself is unchanged
 }
 
 function switchProject(id) {
@@ -899,6 +914,7 @@ async function deleteProject() {
   lastActive.delete(project.project_id);
   const next = shelf[0] ?? createProject();
   showProject(next, false);
+  persistProject(false);
   showToast("Loaded file removed from browser storage");
 }
 
@@ -918,6 +934,12 @@ async function importProjects(files) {
     if (!fresh.length) { showToast("Those files are already loaded. Remove one first to load it again."); return; }
     rememberDraft(false);
     const blank = !project.videos.length && !Object.keys(drafts).length;
+    // Save the candidate first; if it does not fit, nothing on screen or in storage changes.
+    const kept = blank ? shelf : [project, ...shelf];
+    if (!writeStorage(PROJECTS_KEY, projectsPayload([...kept, ...fresh]), { soft: true })) {
+      showToast(storageBlocked ? "Import failed: autosave is paused. Export your annotations and reload first." : "Import failed: the browser has no storage space left. Remove a loaded file or export and clear data, then try again.", true);
+      return;
+    }
     shelf.push(...fresh.slice(1));
     showProject(fresh[0], !blank);
     showToast(`Loaded ${fresh.length} ${fresh.length === 1 ? "file" : "files"}; use the file selector to switch${skipped ? ` (${skipped} already loaded, skipped)` : ""}.`);
@@ -1137,7 +1159,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("storage", (event) => {
-  if ((event.key === STORAGE_KEY || event.key === WORKSPACE_KEY || event.key === SHELF_KEY || event.key === null) && !storageBlocked) {
+  if ((event.key === PROJECTS_KEY || event.key === STORAGE_KEY || event.key === WORKSPACE_KEY || event.key === null) && !storageBlocked) {
     storageBlocked = true;
     memoryNeedsBackup = true;
     storageWarning("Another tab changed the local data. Autosave is paused. Export your annotations, then reload to avoid overwriting each other.");
