@@ -182,7 +182,7 @@ function restoreStorage() {
     if (shelfRaw) {
       const stored = JSON.parse(shelfRaw);
       if (!Array.isArray(stored)) throw new Error("The loaded-file list is not an array.");
-      shelf = stored.map(validateProject);
+      shelf = stored.map(validateProject).filter((item) => item.project_id !== project.project_id);
     }
   } catch {
     storageBlocked = true;
@@ -878,6 +878,9 @@ function showProject(next, keep) {
   renderCurrentVideo();
   if (currentVideo()) loadPlayer(currentVideo());
   else clearPlayer();
+  // Two storage keys cannot be written atomically. Write a superset first so a failed (e.g. over-quota)
+  // write leaves the previous copy of every project intact, then narrow it down.
+  writeStorage(SHELF_KEY, [project, ...shelf]);
   persistProject(false);
   persistShelf();
   persistWorkspace();

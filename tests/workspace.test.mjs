@@ -793,3 +793,24 @@ test("unfinished drafts stay with their project even when two files reuse a vide
   assert.equal(JSON.stringify(stored.other_drafts), "{}");
   assert.equal(stored.drafts[a.videos[0].id].note, "draft in B");
 });
+
+test("a failed shelf write while switching projects leaves every stored project recoverable", async () => {
+  const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
+  const make = (id, name) => { const h = workspace(); h.node("project-name").value = name; h.api.addVideo(id); h.fill("0", "5", id); h.api.saveClip(); return JSON.parse(JSON.stringify(h.api.state().project)); };
+  const a = make("M7lc1UVf-VE", "File A"), b = make("jNQXAC9IVRw", "File B");
+  const w = workspace();
+  w.node("import-file").files = [file("a.json", a)];
+  await w.node("import-file").fire("change");
+  const set = w.storage.set.bind(w.storage);
+  w.storage.set = (key, value) => { if (key.endsWith(".shelf")) throw new Error("quota"); return set(key, value); };
+  w.node("import-file").files = [file("b.json", b)];
+  await w.node("import-file").fire("change");
+  assert.equal(w.api.state().storageBlocked, true);
+  assert.equal(JSON.parse(w.storage.get("omnitalk.annotation.project.v1")).project_id, a.project_id, "File A is still stored");
+  // A reload after a partial success does not show the open project twice.
+  w.storage.set = set;
+  const shelfKey = "omnitalk.annotation.project.v1.shelf";
+  w.storage.set(shelfKey, JSON.stringify([a, b]));
+  const restored = workspace(w.storage);
+  assert.equal(restored.node("project-select").children.length, 2);
+});
