@@ -722,3 +722,26 @@ test("library filters narrow the video list without changing the project or the 
   assert.equal(w.api.state().project.videos.length, 3);
   assert.equal(w.api.state().project.videos.find((v) => v.id === w.api.state().activeId).video_id, "dQw4w9WgXcQ");
 });
+
+test("importing several JSON files adds their videos to the library and keeps existing work", async () => {
+  const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
+  const make = (id) => { const h = workspace(); h.api.addVideo(id); h.fill("0", "5", id); h.api.saveClip(); return JSON.parse(JSON.stringify(h.api.state().project)); };
+  const a = make("M7lc1UVf-VE"), b = make("jNQXAC9IVRw");
+  const w = workspace();
+  w.node("import-file").files = [file("a.json", a), file("b.json", b)];
+  await w.node("import-file").fire("change");
+  let state = w.api.state();
+  assert.equal(state.project.videos.map((v) => v.video_id).join(), ["M7lc1UVf-VE", "jNQXAC9IVRw"].join());
+  assert.equal(state.project.videos[0].clips.length, 1);
+  assert.equal(state.activeId, state.project.videos[0].id);
+  // Re-importing skips known videos; a new file appends without replacing anything.
+  const c = make("dQw4w9WgXcQ");
+  w.node("import-file").files = [file("a.json", a), file("c.json", c)];
+  await w.node("import-file").fire("change");
+  state = w.api.state();
+  assert.equal(state.project.videos.map((v) => v.video_id).join(), ["M7lc1UVf-VE", "jNQXAC9IVRw", "dQw4w9WgXcQ"].join());
+  // One invalid file rejects the whole batch.
+  w.node("import-file").files = [file("ok.json", make("9bZkp7q19f0")), file("bad.json", { nope: true })];
+  await w.node("import-file").fire("change");
+  assert.equal(w.api.state().project.videos.length, 3);
+});

@@ -817,16 +817,33 @@ async function exportProject() {
   } catch (error) { showToast(`Export failed: ${error.message}`, true); }
 }
 
-async function importProject(file) {
-  if (!file) return;
+async function importProjects(files) {
+  files = [...files || []];
+  if (!files.length) return;
   try {
-    if (file.size > 20 * 1024 * 1024 && !await confirmAction("Import a large JSON file?", "This file is larger than 20 MB and may take a while to read. Your current workspace will not change until validation succeeds and you confirm replacement.", "Read file")) return;
-    const imported = validateProject(JSON.parse((await file.text()).replace(/^\uFEFF/, "")));
+    if (files.some((file) => file.size > 20 * 1024 * 1024) && !await confirmAction("Import a large JSON file?", "A selected file is larger than 20 MB and may take a while to read. Your workspace will not change until every file passes validation.", "Read files")) return;
+    const imported = [];
+    for (const file of files) {
+      try { imported.push(validateProject(JSON.parse((await file.text()).replace(/^\uFEFF/, "")))); }
+      catch (error) { throw new Error(files.length > 1 ? `${file.name}: ${error.message}` : error.message); }
+    }
     rememberDraft(false);
-    if ((project.videos.length || Object.keys(drafts).length) && !await confirmAction("Replace the current workspace?", `Import “${imported.project_name || "Untitled project"}” with ${imported.videos.length} videos?\nThis replaces the current workspace and its unfinished drafts. Cancel and export first if you need to keep them.`, "Import and replace")) return;
-    project = imported;
-    activeId = imported.videos[0]?.id ?? null;
-    drafts = {};
+    // Import adds to the video library; an empty workspace adopts the first file's project details.
+    const next = project.videos.length ? project : { ...imported[0], videos: [] };
+    const known = new Set(project.videos.map((video) => video.id));
+    const added = [];
+    let skipped = 0;
+    for (const file of imported) for (const video of file.videos) {
+      if (known.has(video.id)) { skipped++; continue; }
+      known.add(video.id);
+      added.push(video);
+    }
+    if (next.videos.length + added.length > LIMITS.videos) throw new Error(`A project can contain at most ${LIMITS.videos} videos.`);
+    const clipTotal = [...next.videos, ...added].reduce((sum, video) => sum + video.clips.length, 0);
+    if (clipTotal > LIMITS.totalClips) throw new Error(`A project can contain at most ${LIMITS.totalClips} clips.`);
+    if (!added.length) { showToast("Those videos are already in the library. Nothing was imported."); return; }
+    project = { ...next, videos: [...next.videos, ...added] };
+    if (!activeId || !currentVideo()) activeId = added[0].id;
     mediaDuration = 0;
     $("clips-search").value = "";
     clearLibraryFilters(false);
@@ -835,8 +852,7 @@ async function importProject(file) {
     persistProject(false);
     persistWorkspace();
     if (currentVideo()) loadPlayer(currentVideo());
-    else clearPlayer();
-    showToast("JSON imported. Ready to continue annotating.");
+    showToast(`Imported ${added.length} ${added.length === 1 ? "video" : "videos"} from ${files.length} ${files.length === 1 ? "file" : "files"}${skipped ? `; ${skipped} already in the library were skipped` : ""}.`);
   } catch (error) { showToast(`Import failed: ${error.message}`, true); }
   finally { $("import-file").value = ""; }
 }
@@ -1022,7 +1038,7 @@ $("video-title").addEventListener("input", () => {
 });
 $("export-button").addEventListener("click", exportProject);
 $("import-button").addEventListener("click", () => $("import-file").click());
-$("import-file").addEventListener("change", () => importProject($("import-file").files[0]));
+$("import-file").addEventListener("change", () => importProjects($("import-file").files));
 $("recover-storage").addEventListener("click", () => downloadJson(recoveryText, "omnitalk-recovered-draft.json"));
 for (const id of ["close-export", "done-export"]) $(id).addEventListener("click", () => $("export-dialog").close());
 async function copyText(text) {
