@@ -56,7 +56,7 @@ uv run annotation-toolkit --download-dir "/absolute/path/to/output"
 3. Set **Start time** and **End time**, or click **Use current** while playing. Add **Note** and **Tags**, then click **Add clip**.
 4. Preview, edit, or delete clips from the list. **Download all** applies to every saved clip of the selected video, including clips hidden by search, but excludes unfinished drafts and other videos.
 5. Narrow the **Video library** with the filters under its heading: title or YouTube ID, annotator (anyone who added a clip to the video), and question status (has Draft questions, all questions Ready, clips without questions, or no clips yet). Filters combine, only change what the sidebar shows, and are not saved in the project.
-6. Use **Export JSON** to keep a backup or share annotations. **Import JSON** accepts several files at once and adds their videos to the **Video library**; select any of them there, or delete it to remove it from browser storage.
+6. Use **Export JSON** to keep a backup or share annotations. **Import JSON** accepts several files at once. Each file stays a separate project: use the file selector at the top of the sidebar to switch between them, or the trash button beside it to remove one from browser storage.
 
 | Shortcut | Action |
 | --- | --- |
@@ -221,13 +221,13 @@ The export dialog also offers **Download a copy** and **Copy JSON**. If the brow
 
 1. Click **Import JSON** and choose one or more project `.json` files, such as exports from other computers or editions. Files larger than 20 MB require confirmation before reading.
 2. The app validates every file before changing anything: supported schema version, required fields/types, unique record UUIDs, matching YouTube links/IDs, timestamps, and valid clip boundaries. If any file is invalid, nothing is imported.
-3. Imported videos and their saved clips are **added** to the library; existing videos and unfinished drafts are kept. Videos whose record ID is already in the library are skipped. An empty workspace adopts the project name and annotator of the first file.
-4. Pick a loaded video in the **Video library** at the top left. Use its delete button to remove it (and its clips and draft) from browser storage; downloaded media and JSON files are unaffected.
+3. Each file is loaded as its own project and is **not merged** with the others. The first imported file opens; the rest wait in the file selector at the top of the sidebar, which appears once two or more files are loaded. Files already loaded (same project ID) are skipped. Loading into a workspace with no videos or drafts replaces that empty workspace; otherwise the current project stays loaded.
+4. Pick a file in the selector to show its **Video library**, clips, and drafts. The trash button beside the selector removes the open file (its videos, clips, and drafts) from browser storage after confirmation; downloaded media and JSON files are unaffected.
 5. Importing does not download videos automatically or affect running download jobs.
 
 Imports currently allow up to 1,000 videos, 10,000 clips per video, 50,000 clips per project, and 50 tags per clip. Unsupported extra fields are discarded rather than preserved, so keep a separate original if another tool adds metadata. Exact validation rules, including text-length limits, are implemented in [`core.js`](src/annotation_toolkit/static/core.js).
 
-Both editions use the same format. A participant can annotate on Pages, export JSON, and send it to a project lead who imports it into the local app to download clips. Importing merges videos into the current workspace, but there is no shared project synchronization.
+Both editions use the same format. A participant can annotate on Pages, export JSON, and send it to a project lead who imports it into the local app to download clips. Several files can be loaded side by side, but there is no shared project synchronization.
 
 ## Data and limitations
 

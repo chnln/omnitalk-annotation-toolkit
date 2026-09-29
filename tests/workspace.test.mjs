@@ -723,25 +723,39 @@ test("library filters narrow the video list without changing the project or the 
   assert.equal(w.api.state().project.videos.find((v) => v.id === w.api.state().activeId).video_id, "dQw4w9WgXcQ");
 });
 
-test("importing several JSON files adds their videos to the library and keeps existing work", async () => {
+test("imported JSON files stay separate projects that a selector switches between and removes", async () => {
   const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
-  const make = (id) => { const h = workspace(); h.api.addVideo(id); h.fill("0", "5", id); h.api.saveClip(); return JSON.parse(JSON.stringify(h.api.state().project)); };
-  const a = make("M7lc1UVf-VE"), b = make("jNQXAC9IVRw");
+  const make = (id, name) => { const h = workspace(); h.node("project-name").value = name; h.api.addVideo(id); h.fill("0", "5", id); h.api.saveClip(); return JSON.parse(JSON.stringify(h.api.state().project)); };
+  const a = make("M7lc1UVf-VE", "File A"), b = make("jNQXAC9IVRw", "File B");
+  a.project_name = "File A"; b.project_name = "File B";
   const w = workspace();
+  const ids = () => w.api.state().project.videos.map((v) => v.video_id).join();
+  const options = () => w.node("project-select").children.map((o) => o.textContent).join("|");
+  assert.equal(w.node("project-picker").hidden, true);
   w.node("import-file").files = [file("a.json", a), file("b.json", b)];
   await w.node("import-file").fire("change");
-  let state = w.api.state();
-  assert.equal(state.project.videos.map((v) => v.video_id).join(), ["M7lc1UVf-VE", "jNQXAC9IVRw"].join());
-  assert.equal(state.project.videos[0].clips.length, 1);
-  assert.equal(state.activeId, state.project.videos[0].id);
-  // Re-importing skips known videos; a new file appends without replacing anything.
-  const c = make("dQw4w9WgXcQ");
-  w.node("import-file").files = [file("a.json", a), file("c.json", c)];
+  assert.equal(w.api.state().project.project_name, "File A");
+  assert.equal(ids(), "M7lc1UVf-VE", "the library shows only the selected file");
+  assert.equal(w.node("project-picker").hidden, false);
+  assert.equal(options(), "File A · 1 video|File B · 1 video");
+  w.node("project-select").value = b.project_id;
+  await w.node("project-select").fire("change");
+  assert.equal(w.api.state().project.project_name, "File B");
+  assert.equal(ids(), "jNQXAC9IVRw");
+  // Re-importing a loaded file changes nothing.
+  w.node("import-file").files = [file("a.json", a)];
   await w.node("import-file").fire("change");
-  state = w.api.state();
-  assert.equal(state.project.videos.map((v) => v.video_id).join(), ["M7lc1UVf-VE", "jNQXAC9IVRw", "dQw4w9WgXcQ"].join());
-  // One invalid file rejects the whole batch.
-  w.node("import-file").files = [file("ok.json", make("9bZkp7q19f0")), file("bad.json", { nope: true })];
+  assert.equal(options(), "File A · 1 video|File B · 1 video");
+  assert.equal(ids(), "jNQXAC9IVRw");
+  // An invalid file rejects the whole batch.
+  w.node("import-file").files = [file("ok.json", make("9bZkp7q19f0", "File C")), file("bad.json", { nope: true })];
   await w.node("import-file").fire("change");
-  assert.equal(w.api.state().project.videos.length, 3);
+  assert.equal(options(), "File A · 1 video|File B · 1 video");
+  // Removing the open file opens another one.
+  const removal = w.node("delete-project").click();
+  await new Promise((r) => setTimeout(r, 0));
+  await w.node("confirm-accept").click();
+  await removal;
+  assert.equal(w.api.state().project.project_name, "File A");
+  assert.equal(w.node("project-picker").hidden, true);
 });

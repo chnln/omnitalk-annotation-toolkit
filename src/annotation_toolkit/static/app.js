@@ -9,10 +9,12 @@ const isStaticMode = document.body.dataset.mode === "static";
 
 const $ = (id) => document.getElementById(id);
 const WORKSPACE_KEY = `${STORAGE_KEY}.workspace`;
+const SHELF_KEY = `${STORAGE_KEY}.shelf`;
 const SIDEBAR_KEY = "omnitalk.annotation.sidebar.collapsed.v1";
 const draftFields = ["clip-start", "clip-end", "clip-note", "clip-tags"];
 const clock = (seconds) => formatTime(seconds, { milliseconds: true });
 let project = createProject();
+let shelf = []; // imported projects that are loaded but not currently open
 let activeId = null;
 let drafts = {};
 let editingId = null;
@@ -141,6 +143,10 @@ function persistProject(touch = true) {
   return writeStorage(STORAGE_KEY, project);
 }
 
+function persistShelf() {
+  return writeStorage(SHELF_KEY, shelf);
+}
+
 function persistWorkspace() {
   return writeStorage(WORKSPACE_KEY, { project_id: project.project_id, active_video_id: activeId, drafts });
 }
@@ -156,14 +162,24 @@ function restoreStorage() {
     storageWarning(raw ? "The saved project could not be read. Its original data is untouched. Download the original draft, and export any new annotations as JSON." : "Browser storage is unavailable. Export JSON to keep your annotations.");
     $("recover-storage").hidden = !recoveryText;
   }
+  try {
+    const shelfRaw = readStorage(SHELF_KEY);
+    if (shelfRaw) {
+      const stored = JSON.parse(shelfRaw);
+      if (!Array.isArray(stored)) throw new Error("The loaded-file list is not an array.");
+      shelf = stored.map(validateProject);
+    }
+  } catch {
+    storageBlocked = true;
+    storageWarning("Other loaded files could not be read. Their original data is untouched. Export your current annotations; autosave is paused.");
+  }
   activeId = project.videos[0]?.id ?? null;
   try {
     const workspaceRaw = readStorage(WORKSPACE_KEY);
     if (!workspaceRaw) return;
     const workspace = JSON.parse(workspaceRaw);
-    if (workspace.project_id !== project.project_id) return;
-    if (project.videos.some((video) => video.id === workspace.active_video_id)) activeId = workspace.active_video_id;
-    for (const video of project.videos) {
+    if (workspace.project_id === project.project_id && project.videos.some((video) => video.id === workspace.active_video_id)) activeId = workspace.active_video_id;
+    for (const video of [project, ...shelf].flatMap((item) => item.videos)) {
       const draft = workspace.drafts?.[video.id];
       if (draft && ["start", "end", "note", "tags"].every((key) => typeof draft[key] === "string" && draft[key].length <= 20000)) {
         drafts[video.id] = {
@@ -244,6 +260,7 @@ function renderLibraryFilters() {
 
 function renderVideos() {
   $("video-count").textContent = project.videos.length;
+  renderProjectPicker();
   $("library-empty").hidden = !!project.videos.length;
   $("export-button").disabled = !project.videos.length;
   renderLibraryFilters();
@@ -817,6 +834,57 @@ async function exportProject() {
   } catch (error) { showToast(`Export failed: ${error.message}`, true); }
 }
 
+const projectLabel = (item) => `${item.project_name || "Untitled project"} · ${item.videos.length} ${item.videos.length === 1 ? "video" : "videos"}`;
+const lastActive = new Map();
+
+function renderProjectPicker() {
+  const items = [project, ...shelf].sort((x, y) => x.created_at.localeCompare(y.created_at) || x.project_id.localeCompare(y.project_id));
+  $("project-picker").hidden = items.length < 2;
+  $("project-select").replaceChildren(...items.map((item) => {
+    const option = el("option", "", projectLabel(item));
+    option.value = item.project_id;
+    return option;
+  }));
+  $("project-select").value = project.project_id;
+}
+
+/** Make `next` the open project; `keep` says whether the previously open one stays loaded. */
+function showProject(next, keep) {
+  rememberDraft(false);
+  lastActive.set(project.project_id, activeId);
+  if (keep) shelf.push(project);
+  shelf = shelf.filter((item) => item !== next);
+  project = next;
+  const remembered = lastActive.get(next.project_id);
+  activeId = next.videos.some((video) => video.id === remembered) ? remembered : next.videos[0]?.id ?? null;
+  mediaDuration = 0;
+  $("clips-search").value = "";
+  clearLibraryFilters(false);
+  renderProfile();
+  renderCurrentVideo();
+  if (currentVideo()) loadPlayer(currentVideo());
+  else clearPlayer();
+  persistProject(false);
+  persistShelf();
+  persistWorkspace();
+}
+
+function switchProject(id) {
+  const next = shelf.find((item) => item.project_id === id);
+  if (next) showProject(next, true);
+  else renderProjectPicker();
+}
+
+async function deleteProject() {
+  const count = project.videos.length;
+  if (!await confirmAction("Remove this loaded file?", `Remove “${project.project_name || "Untitled project"}” with ${count} ${count === 1 ? "video" : "videos"} from browser storage?\nThis removes its videos, clips, and unfinished drafts from this browser. Downloaded files and existing JSON exports are not changed.`, "Remove file")) return;
+  for (const video of project.videos) delete drafts[video.id];
+  lastActive.delete(project.project_id);
+  const next = shelf[0] ?? createProject();
+  showProject(next, false);
+  showToast("Loaded file removed from browser storage");
+}
+
 async function importProjects(files) {
   files = [...files || []];
   if (!files.length) return;
@@ -827,32 +895,15 @@ async function importProjects(files) {
       try { imported.push(validateProject(JSON.parse((await file.text()).replace(/^\uFEFF/, "")))); }
       catch (error) { throw new Error(files.length > 1 ? `${file.name}: ${error.message}` : error.message); }
     }
+    const loaded = new Set([project, ...shelf].map((item) => item.project_id));
+    const fresh = imported.filter((item) => !loaded.has(item.project_id) && loaded.add(item.project_id));
+    const skipped = imported.length - fresh.length;
+    if (!fresh.length) { showToast("Those files are already loaded. Remove one first to load it again."); return; }
     rememberDraft(false);
-    // Import adds to the video library; an empty workspace adopts the first file's project details.
-    const next = project.videos.length ? project : { ...imported[0], videos: [] };
-    const known = new Set(project.videos.map((video) => video.id));
-    const added = [];
-    let skipped = 0;
-    for (const file of imported) for (const video of file.videos) {
-      if (known.has(video.id)) { skipped++; continue; }
-      known.add(video.id);
-      added.push(video);
-    }
-    if (next.videos.length + added.length > LIMITS.videos) throw new Error(`A project can contain at most ${LIMITS.videos} videos.`);
-    const clipTotal = [...next.videos, ...added].reduce((sum, video) => sum + video.clips.length, 0);
-    if (clipTotal > LIMITS.totalClips) throw new Error(`A project can contain at most ${LIMITS.totalClips} clips.`);
-    if (!added.length) { showToast("Those videos are already in the library. Nothing was imported."); return; }
-    project = { ...next, videos: [...next.videos, ...added] };
-    if (!activeId || !currentVideo()) activeId = added[0].id;
-    mediaDuration = 0;
-    $("clips-search").value = "";
-    clearLibraryFilters(false);
-    renderProfile();
-    renderCurrentVideo();
-    persistProject(false);
-    persistWorkspace();
-    if (currentVideo()) loadPlayer(currentVideo());
-    showToast(`Imported ${added.length} ${added.length === 1 ? "video" : "videos"} from ${files.length} ${files.length === 1 ? "file" : "files"}${skipped ? `; ${skipped} already in the library were skipped` : ""}.`);
+    const blank = !project.videos.length && !Object.keys(drafts).length;
+    shelf.push(...fresh.slice(1));
+    showProject(fresh[0], !blank);
+    showToast(`Loaded ${fresh.length} ${fresh.length === 1 ? "file" : "files"}; use the file selector to switch${skipped ? ` (${skipped} already loaded, skipped)` : ""}.`);
   } catch (error) { showToast(`Import failed: ${error.message}`, true); }
   finally { $("import-file").value = ""; }
 }
@@ -862,6 +913,7 @@ function renderProfile() {
   $("annotator-id").value = project.annotator.id;
   $("annotator-name").value = project.annotator.name;
   $("participant-avatar").textContent = [...(project.annotator.name || project.annotator.id || "A")][0].toLocaleUpperCase();
+  renderProjectPicker();
 }
 
 function setQACollapsed(collapsed) {
@@ -1025,7 +1077,9 @@ $("library-search").addEventListener("input", () => { libraryFilter.query = $("l
 for (const key of ["annotator", "status"]) $(`library-${key}`).addEventListener("change", () => { libraryFilter[key] = $(`library-${key}`).value; renderVideos(); });
 $("clear-library-filters").addEventListener("click", () => clearLibraryFilters());
 $("download-all-clips").addEventListener("click", () => downloadUI?.openAll());
-$("project-name").addEventListener("input", () => { project.project_name = $("project-name").value; persistProject(); });
+$("project-name").addEventListener("input", () => { project.project_name = $("project-name").value; persistProject(); renderProjectPicker(); });
+$("project-select").addEventListener("change", () => switchProject($("project-select").value));
+$("delete-project").addEventListener("click", deleteProject);
 for (const field of ["id", "name"]) $("annotator-" + field).addEventListener("input", () => {
   project.annotator[field] = $("annotator-" + field).value;
   $("participant-avatar").textContent = [...(project.annotator.name || project.annotator.id || "A")][0].toLocaleUpperCase();
@@ -1066,7 +1120,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("storage", (event) => {
-  if ((event.key === STORAGE_KEY || event.key === WORKSPACE_KEY || event.key === null) && !storageBlocked) {
+  if ((event.key === STORAGE_KEY || event.key === WORKSPACE_KEY || event.key === SHELF_KEY || event.key === null) && !storageBlocked) {
     storageBlocked = true;
     memoryNeedsBackup = true;
     storageWarning("Another tab changed the local data. Autosave is paused. Export your annotations, then reload to avoid overwriting each other.");
