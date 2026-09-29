@@ -759,3 +759,31 @@ test("imported JSON files stay separate projects that a selector switches betwee
   assert.equal(w.api.state().project.project_name, "File A");
   assert.equal(w.node("project-picker").hidden, true);
 });
+
+test("unfinished drafts stay with their project even when two files reuse a video ID, and removal discards them", async () => {
+  const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
+  const src = workspace(); src.node("project-name").value = "Original"; src.api.addVideo("M7lc1UVf-VE"); src.fill("0", "5", "saved"); src.api.saveClip();
+  const a = JSON.parse(JSON.stringify(src.api.state().project));
+  const b = { ...JSON.parse(JSON.stringify(a)), project_id: crypto.randomUUID(), project_name: "Copy" };
+  const w = workspace();
+  w.node("import-file").files = [file("a.json", a), file("b.json", b)];
+  await w.node("import-file").fire("change");
+  w.fill("1", "2", "draft in A");
+  w.node("project-select").value = b.project_id;
+  await w.node("project-select").fire("change");
+  assert.equal(w.node("clip-note").value, "", "A's draft must not appear in B");
+  w.fill("3", "4", "draft in B");
+  w.node("project-select").value = a.project_id;
+  await w.node("project-select").fire("change");
+  assert.equal(w.node("clip-note").value, "draft in A");
+  // Removing the open project discards its draft from storage; B keeps its own.
+  const removal = w.node("delete-project").click();
+  await new Promise((r) => setTimeout(r, 0));
+  await w.node("confirm-accept").click();
+  await removal;
+  assert.equal(w.api.state().project.project_id, b.project_id);
+  assert.equal(w.node("clip-note").value, "draft in B");
+  const stored = JSON.parse(w.storage.get("omnitalk.annotation.project.v1.workspace"));
+  assert.equal(JSON.stringify(stored.other_drafts), "{}");
+  assert.equal(stored.drafts[a.videos[0].id].note, "draft in B");
+});

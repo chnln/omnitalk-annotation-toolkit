@@ -16,7 +16,8 @@ const clock = (seconds) => formatTime(seconds, { milliseconds: true });
 let project = createProject();
 let shelf = []; // imported projects that are loaded but not currently open
 let activeId = null;
-let drafts = {};
+let drafts = {}; // unfinished clip drafts of the open project, by video ID
+let draftShelf = {}; // the same for loaded-but-closed projects, by project ID
 let editingId = null;
 let qaClipId = null;
 let qaQuestionId = null;
@@ -148,7 +149,21 @@ function persistShelf() {
 }
 
 function persistWorkspace() {
-  return writeStorage(WORKSPACE_KEY, { project_id: project.project_id, active_video_id: activeId, drafts });
+  return writeStorage(WORKSPACE_KEY, { project_id: project.project_id, active_video_id: activeId, drafts, other_drafts: draftShelf });
+}
+
+function validDrafts(item, saved) {
+  const result = {};
+  for (const video of item.videos) {
+    const draft = saved[video.id];
+    if (draft && ["start", "end", "note", "tags"].every((key) => typeof draft[key] === "string" && draft[key].length <= 20000)) {
+      result[video.id] = {
+        start: draft.start, end: draft.end, note: draft.note, tags: draft.tags,
+        editing_id: video.clips.some((clip) => clip.id === draft.editing_id) ? draft.editing_id : null,
+      };
+    }
+  }
+  return result;
 }
 
 function restoreStorage() {
@@ -179,15 +194,9 @@ function restoreStorage() {
     if (!workspaceRaw) return;
     const workspace = JSON.parse(workspaceRaw);
     if (workspace.project_id === project.project_id && project.videos.some((video) => video.id === workspace.active_video_id)) activeId = workspace.active_video_id;
-    for (const video of [project, ...shelf].flatMap((item) => item.videos)) {
-      const draft = workspace.drafts?.[video.id];
-      if (draft && ["start", "end", "note", "tags"].every((key) => typeof draft[key] === "string" && draft[key].length <= 20000)) {
-        drafts[video.id] = {
-          start: draft.start, end: draft.end, note: draft.note, tags: draft.tags,
-          editing_id: video.clips.some((clip) => clip.id === draft.editing_id) ? draft.editing_id : null,
-        };
-      }
-    }
+    const savedDrafts = (item) => (workspace.project_id === item.project_id ? workspace.drafts : workspace.other_drafts?.[item.project_id]) ?? {};
+    drafts = validDrafts(project, savedDrafts(project));
+    for (const item of shelf) draftShelf[item.project_id] = validDrafts(item, savedDrafts(item));
   } catch {
     storageBlocked = true;
     storageWarning("The unfinished clip draft could not be restored. Saved clips are still available. Export a backup; the original browser data has not been overwritten.");
@@ -850,11 +859,16 @@ function renderProjectPicker() {
 
 /** Make `next` the open project; `keep` says whether the previously open one stays loaded. */
 function showProject(next, keep) {
-  rememberDraft(false);
-  lastActive.set(project.project_id, activeId);
-  if (keep) shelf.push(project);
+  if (keep) {
+    rememberDraft(false);
+    draftShelf[project.project_id] = drafts;
+    lastActive.set(project.project_id, activeId);
+    shelf.push(project);
+  }
   shelf = shelf.filter((item) => item !== next);
   project = next;
+  drafts = draftShelf[next.project_id] ?? {};
+  delete draftShelf[next.project_id];
   const remembered = lastActive.get(next.project_id);
   activeId = next.videos.some((video) => video.id === remembered) ? remembered : next.videos[0]?.id ?? null;
   mediaDuration = 0;
@@ -878,7 +892,7 @@ function switchProject(id) {
 async function deleteProject() {
   const count = project.videos.length;
   if (!await confirmAction("Remove this loaded file?", `Remove “${project.project_name || "Untitled project"}” with ${count} ${count === 1 ? "video" : "videos"} from browser storage?\nThis removes its videos, clips, and unfinished drafts from this browser. Downloaded files and existing JSON exports are not changed.`, "Remove file")) return;
-  for (const video of project.videos) delete drafts[video.id];
+  drafts = {};
   lastActive.delete(project.project_id);
   const next = shelf[0] ?? createProject();
   showProject(next, false);
