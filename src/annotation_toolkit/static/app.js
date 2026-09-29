@@ -848,7 +848,7 @@ const lastActive = new Map();
 
 function renderProjectPicker() {
   const items = [project, ...shelf].sort((x, y) => x.created_at.localeCompare(y.created_at) || x.project_id.localeCompare(y.project_id));
-  $("project-picker").hidden = items.length < 2;
+  $("project-picker").hidden = items.length < 2 && !project.videos.length; // a lone project stays removable
   $("project-select").replaceChildren(...items.map((item) => {
     const option = el("option", "", projectLabel(item));
     option.value = item.project_id;

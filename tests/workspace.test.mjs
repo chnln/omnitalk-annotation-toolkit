@@ -757,6 +757,12 @@ test("imported JSON files stay separate projects that a selector switches betwee
   await w.node("confirm-accept").click();
   await removal;
   assert.equal(w.api.state().project.project_name, "File A");
+  assert.equal(w.node("project-picker").hidden, false, "the last loaded file can still be removed");
+  const last = w.node("delete-project").click();
+  await new Promise((r) => setTimeout(r, 0));
+  await w.node("confirm-accept").click();
+  await last;
+  assert.equal(w.api.state().project.videos.length, 0);
   assert.equal(w.node("project-picker").hidden, true);
 });
 
