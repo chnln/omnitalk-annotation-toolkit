@@ -143,6 +143,17 @@ function writeStorage(key, value, { soft = false } = {}) {
   }
 }
 
+/** Put back a value this page wrote earlier (used to undo half of a two-key change). */
+function restoreStorageValue(key, raw) {
+  try {
+    if (raw === null) localStorage.removeItem(key); else localStorage.setItem(key, raw);
+    storedValues.set(key, raw);
+  } catch {
+    storageBlocked = true;
+    storageWarning("Browser storage is unavailable or full. Autosave is paused; your annotations are still on this page. Export JSON to keep them.");
+  }
+}
+
 function persistProject(touch = true) {
   if (touch) project.updated_at = new Date().toISOString();
   return writeStorage(PROJECTS_KEY, projectsPayload());
@@ -934,9 +945,18 @@ async function importProjects(files) {
     if (!fresh.length) { showToast("Those files are already loaded. Remove one first to load it again."); return; }
     rememberDraft(false);
     const blank = !project.videos.length && !Object.keys(drafts).length;
-    // Save the candidate first; if it does not fit, nothing on screen or in storage changes.
+    // Save both keys of the candidate state first; if either does not fit, nothing on screen or in storage changes.
+    // The small workspace key goes first: if the project list then fails, it is put back. If the page stops in
+    // between, a pointer to a not-yet-stored project falls back to the first stored one, and drafts stay keyed by project.
     const kept = blank ? shelf : [project, ...shelf];
-    if (!writeStorage(PROJECTS_KEY, projectsPayload([...kept, ...fresh]), { soft: true })) {
+    const previousWorkspace = storedValues.get(WORKSPACE_KEY) ?? null;
+    const workspace = {
+      project_id: fresh[0].project_id, active_video_id: fresh[0].videos[0]?.id ?? null, drafts: {},
+      other_drafts: blank ? draftShelf : { ...draftShelf, [project.project_id]: drafts },
+    };
+    const saved = writeStorage(WORKSPACE_KEY, workspace, { soft: true })
+      && (writeStorage(PROJECTS_KEY, projectsPayload([...kept, ...fresh]), { soft: true }) || (restoreStorageValue(WORKSPACE_KEY, previousWorkspace), false));
+    if (!saved) {
       showToast(storageBlocked ? "Import failed: autosave is paused. Export your annotations and reload first." : "Import failed: the browser has no storage space left. Remove a loaded file or export and clear data, then try again.", true);
       return;
     }

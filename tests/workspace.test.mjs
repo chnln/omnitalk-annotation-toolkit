@@ -824,6 +824,31 @@ test("an import that does not fit is refused cleanly, keeps autosave running, an
   assert.equal(stored, [a.project_id, b.project_id].sort().join());
 });
 
+test("an import is refused cleanly when either the project list or the workspace key does not fit", async () => {
+  const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
+  const make = (id, name) => { const h = workspace(); h.node("project-name").value = name; h.api.addVideo(id); h.fill("0", "5", id); h.api.saveClip(); return JSON.parse(JSON.stringify(h.api.state().project)); };
+  const a = make("M7lc1UVf-VE", "File A"), b = make("jNQXAC9IVRw", "File B");
+  const w = workspace();
+  w.node("import-file").files = [file("a.json", a)];
+  await w.node("import-file").fire("change");
+  w.fill("1", "2", "draft in A"); await w.node("clip-note").fire("input");
+  const WS = "omnitalk.annotation.project.v1.workspace";
+  const snapshot = () => [w.storage.get(PROJECTS), w.storage.get(WS)].join("\n");
+  const set = w.storage.set.bind(w.storage);
+  for (const failing of [WS, PROJECTS]) {
+    const before = snapshot();
+    w.storage.set = (key, value) => { if (key === failing) throw new Error("quota"); return set(key, value); };
+    w.node("import-file").files = [file("b.json", b)];
+    await w.node("import-file").fire("change");
+    w.storage.set = set;
+    assert.equal(snapshot(), before, `storage is unchanged when ${failing} does not fit`);
+    assert.equal(w.api.state().storageBlocked, false, "autosave keeps running");
+    assert.equal(w.api.state().project.project_id, a.project_id);
+    assert.equal(w.node("project-select").children.length, 1);
+    assert.equal(w.node("clip-note").value, "draft in A");
+  }
+});
+
 test("the open project is a small pointer, and loaded files survive a reload and legacy storage migration", async () => {
   const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
   const make = (id, name) => { const h = workspace(); h.node("project-name").value = name; h.api.addVideo(id); h.fill("0", "5", id); h.api.saveClip(); return JSON.parse(JSON.stringify(h.api.state().project)); };
