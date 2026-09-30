@@ -179,6 +179,22 @@ function validDrafts(item, saved) {
   return result;
 }
 
+/**
+ * Move the old open-project/shelf keys into the single projects key. Two full copies may not fit at once, so the
+ * old keys are removed first and put back if the new one cannot be written; the data stays in memory throughout.
+ */
+function migrateLegacyStorage() {
+  const legacyKeys = [STORAGE_KEY, SHELF_KEY];
+  const legacyValues = legacyKeys.map((key) => storedValues.get(key) ?? null);
+  try { legacyKeys.forEach((key) => localStorage.removeItem(key)); } catch { /* the write below still decides */ }
+  legacyKeys.forEach((key) => storedValues.set(key, null));
+  if (writeStorage(PROJECTS_KEY, projectsPayload(), { soft: true })) return;
+  legacyKeys.forEach((key, index) => restoreStorageValue(key, legacyValues[index]));
+  storageBlocked = true;
+  memoryNeedsBackup = true;
+  storageWarning("Saved projects could not be moved to the new storage format because browser storage is full. The original data is untouched; autosave is paused. Export JSON to keep new work.");
+}
+
 function restoreStorage() {
   let all = [];
   let legacy = false;
@@ -218,9 +234,7 @@ function restoreStorage() {
   }
   project = all.find((item) => item.project_id === workspace?.project_id) ?? all[0] ?? project;
   shelf = all.filter((item) => item !== project);
-  if (legacy && all.length && !storageBlocked && writeStorage(PROJECTS_KEY, projectsPayload(), { soft: true })) {
-    try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(SHELF_KEY); } catch { /* old copies are ignored once the new key exists */ }
-  }
+  if (legacy && all.length && !storageBlocked) migrateLegacyStorage();
   activeId = project.videos[0]?.id ?? null;
   if (!workspace) return;
   try {

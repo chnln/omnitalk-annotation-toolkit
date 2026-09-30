@@ -63,7 +63,7 @@ class Node {
   set textContent(text) { this._text = String(text); this.replaceChildren(); }
 }
 
-function workspace(savedStorage = [], { mode = "local", failSidebarStorage = false } = {}) {
+function workspace(savedStorage = [], { mode = "local", failSidebarStorage = false, beforeSetItem = null } = {}) {
   const document = {
     activeElement: null,
     downloads: [],
@@ -113,7 +113,7 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
     location: { origin: "http://127.0.0.1:8765" },
     localStorage: {
       getItem: (key) => { if (failSidebarStorage && key === sidebarStorageKey) throw new Error("Preference storage unavailable"); return storage.get(key) ?? null; },
-      setItem: (key, value) => { if (failSidebarStorage && key === sidebarStorageKey) throw new Error("Preference storage unavailable"); storage.set(key, value); },
+      setItem: (key, value) => { if (failSidebarStorage && key === sidebarStorageKey) throw new Error("Preference storage unavailable"); beforeSetItem?.(key, value, storage); storage.set(key, value); },
       removeItem: (key) => { storage.delete(key); },
     },
     setTimeout: (handler) => { timers.set(++timerId, handler); return timerId; },
@@ -870,4 +870,28 @@ test("the open project is a small pointer, and loaded files survive a reload and
   assert.equal(migrated.storage.has("omnitalk.annotation.project.v1"), false);
   assert.equal(migrated.storage.has("omnitalk.annotation.project.v1.shelf"), false);
   assert.equal(JSON.parse(migrated.storage.get(PROJECTS)).projects.length, 2);
+});
+
+test("legacy migration fits when the old data fills most of the quota, and restores the old keys if the new key still fails", () => {
+  const h = workspace(); h.api.addVideo("M7lc1UVf-VE"); h.fill("0", "5", "x".repeat(2000)); h.api.saveClip();
+  const a = core.validateProject(JSON.parse(JSON.stringify(h.api.state().project)));
+  const LEGACY = "omnitalk.annotation.project.v1";
+  const legacy = () => [[LEGACY, JSON.stringify(a)]];
+  // Room for one copy of the project data but not two (drafts and preferences are not counted).
+  const counted = (key) => !key.endsWith(".workspace") && !key.includes("sidebar");
+  const quota = (limit) => (key, value, storage) => {
+    const used = [...storage].reduce((sum, [k, v]) => sum + (k === key || !counted(k) ? 0 : v.length), 0);
+    if (counted(key) && used + value.length > limit) throw new Error("quota");
+  };
+  const ok = workspace(legacy(), { beforeSetItem: quota(JSON.stringify(a).length * 1.5) });
+  assert.equal(ok.api.state().storageBlocked, false);
+  assert.equal(ok.storage.has(LEGACY), false);
+  assert.equal(storedProject(ok).project_id, a.project_id);
+  // If the new key cannot be written at all, the old key comes back unchanged and autosave pauses with a warning.
+  const full = workspace(legacy(), { beforeSetItem: (key) => { if (key === PROJECTS) throw new Error("quota"); } });
+  assert.equal(full.storage.get(LEGACY), JSON.stringify(a));
+  assert.equal(full.storage.has(PROJECTS), false);
+  assert.equal(full.api.state().storageBlocked, true);
+  assert.equal(full.node("storage-warning").hidden, false);
+  assert.equal(full.api.state().project.project_id, a.project_id);
 });
