@@ -47,7 +47,7 @@
       <div class="topbar-actions">
         <span class="save-status" id="save-status" role="status"><span class="status-dot"></span>Local autosave</span>
         <button class="button secondary" id="import-button"><svg class="icon"><use href="#i-upload"/></svg><span>Import JSON</span></button>
-        <input type="file" id="import-file" accept="application/json,.json" hidden>
+        <input type="file" id="import-file" accept="application/json,.json" multiple hidden>
         <button class="button primary" id="export-button"><svg class="icon"><use href="#i-download"/></svg><span>Export JSON</span></button>
         <button class="icon-button help-button" id="help-button" aria-label="Help"><svg class="icon"><use href="#i-help"/></svg></button>
       </div>
@@ -61,6 +61,7 @@
       <aside class="sidebar" id="library-sidebar" aria-label="Project and video library">
         <div class="workspace-label"><span>WORKSPACE</span><span class="local-pill"><span class="status-dot"></span>LOCAL</span><button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-expanded="true" aria-controls="sidebar-content" aria-label="Collapse video library" title="Collapse video library"><svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg><span class="sidebar-toggle-text">Library</span></button></div>
         <div class="sidebar-content" id="sidebar-content">
+        <div class="project-picker" id="project-picker" hidden><select id="project-select" aria-label="Loaded file"></select><button class="icon-button" id="delete-project" type="button" aria-label="Remove this loaded file" title="Remove this loaded file from browser storage"><svg class="icon"><use href="#i-trash"/></svg></button></div>
         <label class="project-field" for="project-name"><svg class="icon"><use href="#i-folder"/></svg><input id="project-name" aria-label="Project name" maxlength="200" value="OmniTalk corpus"></label>
         <div class="sidebar-divider"></div>
         <div class="library-heading"><h2>Video library <span id="video-count" class="count-pill">0</span></h2><button class="icon-button" id="add-video-focus" aria-label="Add video"><svg class="icon"><use href="#i-plus"/></svg></button></div>

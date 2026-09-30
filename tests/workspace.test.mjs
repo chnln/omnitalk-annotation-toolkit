@@ -7,6 +7,8 @@ import * as core from "../src/annotation_toolkit/static/core.js";
 const appSource = readFileSync(new URL("../src/annotation_toolkit/static/app.js", import.meta.url), "utf8")
   .replace(/^import\s+[\s\S]*?from\s+["'][^"']+["'];\s*/gm, "");
 const html = readFileSync(new URL("../src/annotation_toolkit/static/index.html", import.meta.url), "utf8");
+const PROJECTS = "omnitalk.annotation.projects.v2";
+const storedProject = (h, index = 0) => JSON.parse(h.storage.get(PROJECTS)).projects[index];
 const sidebarStorageKey = "omnitalk.annotation.sidebar.collapsed.v1";
 
 /** Small DOM doubles: exercise the production app, not copies of its handlers. */
@@ -61,7 +63,7 @@ class Node {
   set textContent(text) { this._text = String(text); this.replaceChildren(); }
 }
 
-function workspace(savedStorage = [], { mode = "local", failSidebarStorage = false } = {}) {
+function workspace(savedStorage = [], { mode = "local", failSidebarStorage = false, beforeSetItem = null } = {}) {
   const document = {
     activeElement: null,
     downloads: [],
@@ -111,7 +113,8 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
     location: { origin: "http://127.0.0.1:8765" },
     localStorage: {
       getItem: (key) => { if (failSidebarStorage && key === sidebarStorageKey) throw new Error("Preference storage unavailable"); return storage.get(key) ?? null; },
-      setItem: (key, value) => { if (failSidebarStorage && key === sidebarStorageKey) throw new Error("Preference storage unavailable"); storage.set(key, value); },
+      setItem: (key, value) => { if (failSidebarStorage && key === sidebarStorageKey) throw new Error("Preference storage unavailable"); beforeSetItem?.(key, value, storage); storage.set(key, value); },
+      removeItem: (key) => { storage.delete(key); },
     },
     setTimeout: (handler) => { timers.set(++timerId, handler); return timerId; },
     clearTimeout: (id) => timers.delete(id),
@@ -433,7 +436,7 @@ test("deleting an inactive video preserves the active player and draft and remov
   assert.equal(h.node("clips-body").children[0], row);
   assert.equal(h.api.state().drafts[removedId], undefined);
   assert.equal(h.api.state().project.videos.length, 1);
-  const stored = core.validateProject(JSON.parse(h.storage.get(core.STORAGE_KEY)));
+  const stored = core.validateProject(storedProject(h));
   assert.equal(stored.videos[0].video_id, "dQw4w9WgXcQ");
   const workspaceData = JSON.parse(h.storage.get(`${core.STORAGE_KEY}.workspace`));
   assert.equal(workspaceData.drafts[removedId], undefined);
@@ -519,7 +522,7 @@ test("deleting the last video clears player and editor state, ignores stale call
   previous.events.onStateChange({ target: previous, data: 1 });
   assert.equal(h.api.state().player, null);
   assert.equal(h.node("player-notice").hidden, true);
-  assert.equal(core.validateProject(JSON.parse(h.storage.get(core.STORAGE_KEY))).videos.length, 0);
+  assert.equal(core.validateProject(storedProject(h)).videos.length, 0);
   const restored = workspace(h.storage);
   assert.equal(restored.api.state().activeId, null);
   assert.equal(restored.node("clip-note").value, "");
@@ -562,7 +565,7 @@ test("the sidebar toggles accessibly and remembers its layout without changing a
   h.resolveAPI();
   await h.flush();
   h.instances[0].ready();
-  const projectBefore = h.storage.get(core.STORAGE_KEY);
+  const projectBefore = h.storage.get(PROJECTS);
   const workspaceBefore = h.storage.get(`${core.STORAGE_KEY}.workspace`);
   const player = h.api.state().player;
   const select = h.libraryItem("M7lc1UVf-VE");
@@ -576,7 +579,7 @@ test("the sidebar toggles accessibly and remembers its layout without changing a
   assert.equal(toggle.hidden, false, "The reopen control remains available");
   assert.ok(h.document.body.className.split(" ").includes("sidebar-collapsed"));
   assert.equal(h.storage.get(sidebarStorageKey), "true");
-  assert.equal(h.storage.get(core.STORAGE_KEY), projectBefore);
+  assert.equal(h.storage.get(PROJECTS), projectBefore);
   assert.equal(h.storage.get(`${core.STORAGE_KEY}.workspace`), workspaceBefore);
   assert.equal(h.api.state().player, player);
   assert.equal(h.libraryItem("M7lc1UVf-VE"), select);
@@ -601,9 +604,9 @@ test("sidebar preference events and failures do not disable or bypass project au
   assert.equal(h.api.state().storageBlocked, false);
   h.fill("1", "5", "Still autosaved");
   h.api.saveClip();
-  assert.equal(core.validateProject(JSON.parse(h.storage.get(core.STORAGE_KEY))).videos[0].clips[0].note, "Still autosaved");
+  assert.equal(core.validateProject(storedProject(h)).videos[0].clips[0].note, "Still autosaved");
   assert.equal(h.api.state().memoryNeedsBackup, false);
-  h.window.fire("storage", { key: core.STORAGE_KEY, newValue: "another tab changed it" });
+  h.window.fire("storage", { key: PROJECTS, newValue: "another tab changed it" });
   assert.equal(h.api.state().storageBlocked, true);
   await h.node("sidebar-toggle").fire("click");
   assert.equal(h.api.state().storageBlocked, true, "Changing layout must not release the cross-tab safety lock");
@@ -721,4 +724,174 @@ test("library filters narrow the video list without changing the project or the 
   assert.deepEqual(visibleIds(), ["dQw4w9WgXcQ"]);
   assert.equal(w.api.state().project.videos.length, 3);
   assert.equal(w.api.state().project.videos.find((v) => v.id === w.api.state().activeId).video_id, "dQw4w9WgXcQ");
+});
+
+test("imported JSON files stay separate projects that a selector switches between and removes", async () => {
+  const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
+  const make = (id, name) => { const h = workspace(); h.node("project-name").value = name; h.api.addVideo(id); h.fill("0", "5", id); h.api.saveClip(); return JSON.parse(JSON.stringify(h.api.state().project)); };
+  const a = make("M7lc1UVf-VE", "File A"), b = make("jNQXAC9IVRw", "File B");
+  a.project_name = "File A"; b.project_name = "File B";
+  const w = workspace();
+  const ids = () => w.api.state().project.videos.map((v) => v.video_id).join();
+  const options = () => w.node("project-select").children.map((o) => o.textContent).join("|");
+  assert.equal(w.node("project-picker").hidden, true);
+  w.node("import-file").files = [file("a.json", a), file("b.json", b)];
+  await w.node("import-file").fire("change");
+  assert.equal(w.api.state().project.project_name, "File A");
+  assert.equal(ids(), "M7lc1UVf-VE", "the library shows only the selected file");
+  assert.equal(w.node("project-picker").hidden, false);
+  assert.equal(options(), "File A · 1 video|File B · 1 video");
+  w.node("project-select").value = b.project_id;
+  await w.node("project-select").fire("change");
+  assert.equal(w.api.state().project.project_name, "File B");
+  assert.equal(ids(), "jNQXAC9IVRw");
+  // Re-importing a loaded file changes nothing.
+  w.node("import-file").files = [file("a.json", a)];
+  await w.node("import-file").fire("change");
+  assert.equal(options(), "File A · 1 video|File B · 1 video");
+  assert.equal(ids(), "jNQXAC9IVRw");
+  // An invalid file rejects the whole batch.
+  w.node("import-file").files = [file("ok.json", make("9bZkp7q19f0", "File C")), file("bad.json", { nope: true })];
+  await w.node("import-file").fire("change");
+  assert.equal(options(), "File A · 1 video|File B · 1 video");
+  // Removing the open file opens another one.
+  const removal = w.node("delete-project").click();
+  await new Promise((r) => setTimeout(r, 0));
+  await w.node("confirm-accept").click();
+  await removal;
+  assert.equal(w.api.state().project.project_name, "File A");
+  assert.equal(w.node("project-picker").hidden, false, "the last loaded file can still be removed");
+  const last = w.node("delete-project").click();
+  await new Promise((r) => setTimeout(r, 0));
+  await w.node("confirm-accept").click();
+  await last;
+  assert.equal(w.api.state().project.videos.length, 0);
+  assert.equal(w.node("project-picker").hidden, true);
+});
+
+test("unfinished drafts stay with their project even when two files reuse a video ID, and removal discards them", async () => {
+  const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
+  const src = workspace(); src.node("project-name").value = "Original"; src.api.addVideo("M7lc1UVf-VE"); src.fill("0", "5", "saved"); src.api.saveClip();
+  const a = JSON.parse(JSON.stringify(src.api.state().project));
+  const b = { ...JSON.parse(JSON.stringify(a)), project_id: crypto.randomUUID(), project_name: "Copy" };
+  const w = workspace();
+  w.node("import-file").files = [file("a.json", a), file("b.json", b)];
+  await w.node("import-file").fire("change");
+  w.fill("1", "2", "draft in A");
+  w.node("project-select").value = b.project_id;
+  await w.node("project-select").fire("change");
+  assert.equal(w.node("clip-note").value, "", "A's draft must not appear in B");
+  w.fill("3", "4", "draft in B");
+  w.node("project-select").value = a.project_id;
+  await w.node("project-select").fire("change");
+  assert.equal(w.node("clip-note").value, "draft in A");
+  // Removing the open project discards its draft from storage; B keeps its own.
+  const removal = w.node("delete-project").click();
+  await new Promise((r) => setTimeout(r, 0));
+  await w.node("confirm-accept").click();
+  await removal;
+  assert.equal(w.api.state().project.project_id, b.project_id);
+  assert.equal(w.node("clip-note").value, "draft in B");
+  const stored = JSON.parse(w.storage.get("omnitalk.annotation.project.v1.workspace"));
+  assert.equal(JSON.stringify(stored.other_drafts), "{}");
+  assert.equal(stored.drafts[a.videos[0].id].note, "draft in B");
+});
+
+test("an import that does not fit is refused cleanly, keeps autosave running, and an exact fit succeeds", async () => {
+  const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
+  const make = (id, name) => { const h = workspace(); h.node("project-name").value = name; h.api.addVideo(id); h.fill("0", "5", id); h.api.saveClip(); return JSON.parse(JSON.stringify(h.api.state().project)); };
+  const a = make("M7lc1UVf-VE", "File A"), b = make("jNQXAC9IVRw", "File B");
+  const w = workspace();
+  w.node("import-file").files = [file("a.json", a)];
+  await w.node("import-file").fire("change");
+  const set = w.storage.set.bind(w.storage);
+  const before = w.storage.get(PROJECTS);
+  let cap = before.length + 10;
+  w.storage.set = (key, value) => { if (key === PROJECTS && value.length > cap) throw new Error("quota"); return set(key, value); };
+  w.node("import-file").files = [file("b.json", b)];
+  await w.node("import-file").fire("change");
+  assert.equal(w.api.state().storageBlocked, false, "a refused import must not pause autosave");
+  assert.equal(w.storage.get(PROJECTS), before, "stored data is untouched");
+  assert.equal(w.api.state().project.project_id, a.project_id);
+  assert.equal(w.node("project-select").children.length, 1);
+  w.node("project-name").value = "Renamed"; await w.node("project-name").fire("input");
+  assert.equal(storedProject(w).project_name, "Renamed", "autosave still works");
+  cap = Infinity;
+  w.node("import-file").files = [file("b.json", b)];
+  await w.node("import-file").fire("change");
+  assert.equal(w.api.state().project.project_id, b.project_id);
+  const stored = JSON.parse(w.storage.get(PROJECTS)).projects.map((p) => p.project_id).sort().join();
+  assert.equal(stored, [a.project_id, b.project_id].sort().join());
+});
+
+test("an import is refused cleanly when either the project list or the workspace key does not fit", async () => {
+  const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
+  const make = (id, name) => { const h = workspace(); h.node("project-name").value = name; h.api.addVideo(id); h.fill("0", "5", id); h.api.saveClip(); return JSON.parse(JSON.stringify(h.api.state().project)); };
+  const a = make("M7lc1UVf-VE", "File A"), b = make("jNQXAC9IVRw", "File B");
+  const w = workspace();
+  w.node("import-file").files = [file("a.json", a)];
+  await w.node("import-file").fire("change");
+  w.fill("1", "2", "draft in A"); await w.node("clip-note").fire("input");
+  const WS = "omnitalk.annotation.project.v1.workspace";
+  const snapshot = () => [w.storage.get(PROJECTS), w.storage.get(WS)].join("\n");
+  const set = w.storage.set.bind(w.storage);
+  for (const failing of [WS, PROJECTS]) {
+    const before = snapshot();
+    w.storage.set = (key, value) => { if (key === failing) throw new Error("quota"); return set(key, value); };
+    w.node("import-file").files = [file("b.json", b)];
+    await w.node("import-file").fire("change");
+    w.storage.set = set;
+    assert.equal(snapshot(), before, `storage is unchanged when ${failing} does not fit`);
+    assert.equal(w.api.state().storageBlocked, false, "autosave keeps running");
+    assert.equal(w.api.state().project.project_id, a.project_id);
+    assert.equal(w.node("project-select").children.length, 1);
+    assert.equal(w.node("clip-note").value, "draft in A");
+  }
+});
+
+test("the open project is a small pointer, and loaded files survive a reload and legacy storage migration", async () => {
+  const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
+  const make = (id, name) => { const h = workspace(); h.node("project-name").value = name; h.api.addVideo(id); h.fill("0", "5", id); h.api.saveClip(); return JSON.parse(JSON.stringify(h.api.state().project)); };
+  const a = make("M7lc1UVf-VE", "File A"), b = make("jNQXAC9IVRw", "File B");
+  const w = workspace();
+  w.node("import-file").files = [file("a.json", a), file("b.json", b)];
+  await w.node("import-file").fire("change");
+  w.node("project-select").value = b.project_id; await w.node("project-select").fire("change");
+  const projectsBefore = w.storage.get(PROJECTS);
+  const reloaded = workspace(w.storage);
+  assert.equal(reloaded.api.state().project.project_id, b.project_id, "switching persists the open project");
+  assert.equal(reloaded.node("project-select").children.length, 2);
+  assert.equal(w.storage.get(PROJECTS), projectsBefore, "switching does not rewrite the project list");
+  // Legacy layout: separate open project and shelf keys are merged, de-duplicated, and then removed.
+  const legacy = new Map([["omnitalk.annotation.project.v1", JSON.stringify(a)], ["omnitalk.annotation.project.v1.shelf", JSON.stringify([a, b])]]);
+  const migrated = workspace(legacy);
+  assert.equal(migrated.api.state().project.project_id, a.project_id);
+  assert.equal(migrated.node("project-select").children.length, 2);
+  assert.equal(migrated.storage.has("omnitalk.annotation.project.v1"), false);
+  assert.equal(migrated.storage.has("omnitalk.annotation.project.v1.shelf"), false);
+  assert.equal(JSON.parse(migrated.storage.get(PROJECTS)).projects.length, 2);
+});
+
+test("legacy migration fits when the old data fills most of the quota, and restores the old keys if the new key still fails", () => {
+  const h = workspace(); h.api.addVideo("M7lc1UVf-VE"); h.fill("0", "5", "x".repeat(2000)); h.api.saveClip();
+  const a = core.validateProject(JSON.parse(JSON.stringify(h.api.state().project)));
+  const LEGACY = "omnitalk.annotation.project.v1";
+  const legacy = () => [[LEGACY, JSON.stringify(a)]];
+  // Room for one copy of the project data but not two (drafts and preferences are not counted).
+  const counted = (key) => !key.endsWith(".workspace") && !key.includes("sidebar");
+  const quota = (limit) => (key, value, storage) => {
+    const used = [...storage].reduce((sum, [k, v]) => sum + (k === key || !counted(k) ? 0 : v.length), 0);
+    if (counted(key) && used + value.length > limit) throw new Error("quota");
+  };
+  const ok = workspace(legacy(), { beforeSetItem: quota(JSON.stringify(a).length * 1.5) });
+  assert.equal(ok.api.state().storageBlocked, false);
+  assert.equal(ok.storage.has(LEGACY), false);
+  assert.equal(storedProject(ok).project_id, a.project_id);
+  // If the new key cannot be written at all, the old key comes back unchanged and autosave pauses with a warning.
+  const full = workspace(legacy(), { beforeSetItem: (key) => { if (key === PROJECTS) throw new Error("quota"); } });
+  assert.equal(full.storage.get(LEGACY), JSON.stringify(a));
+  assert.equal(full.storage.has(PROJECTS), false);
+  assert.equal(full.api.state().storageBlocked, true);
+  assert.equal(full.node("storage-warning").hidden, false);
+  assert.equal(full.api.state().project.project_id, a.project_id);
 });
