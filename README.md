@@ -89,7 +89,7 @@ Download only content you have permission to use. The toolkit does not import lo
 
 ## Annotation JSON schema
 
-The current format is **schema `1.2`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.2.0`. The English interface accepts Unicode text in names, notes, and tags.
+The current format is **schema `1.2`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.3.0`. The English interface accepts Unicode text in names, notes, and tags.
 
 ### Project fields
 
@@ -231,7 +231,7 @@ Both editions use the same format. A participant can annotate on Pages, export J
 
 ## Data and limitations
 
-Projects and drafts autosave to browser `localStorage`, separately for each browser, host, and port. Clearing browser data removes them. Autosave is not a JSON file backup: export regularly, and avoid editing the same project in multiple tabs. Annotations are not uploaded to a project server.
+Projects and drafts autosave to browser `localStorage`, separately for each browser, host, and port. Clearing browser data removes them. All loaded files share the browser's storage quota for this site (often about 5 MB); an import that does not fit is refused and leaves the workspace unchanged. Data saved by v0.2.0 is migrated automatically on first load. Autosave is not a JSON file backup: export regularly, and avoid editing the same project in multiple tabs. Annotations are not uploaded to a project server.
 
 YouTube playback still connects to YouTube/Google and requires internet access and an embeddable video. The [official embedded player](https://developers.google.com/youtube/iframe_api_reference) avoids the website’s comments and recommendation sidebar, but YouTube controls its branding, ads, and end recommendations. These cannot all be hidden through [player parameters](https://developers.google.com/youtube/player_parameters).
 
