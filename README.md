@@ -252,16 +252,14 @@ uv run python scripts/build_pages.py
 
 Node.js is needed for the frontend tests, not for annotation itself. The frontend uses plain HTML, CSS, and JavaScript without a JavaScript bundler. `scripts/build_pages.py` prepares the static demo in `dist/pages`.
 
-### Change review and release approval
+### Change review and release
 
-Submit changes through a pull request before merging or publishing. Do not push changes directly to `main` or `gh-pages` as a shortcut around review.
+Submit changes through a pull request. Do not push changes directly to `main` or `gh-pages`.
 
-Creating a PR does not authorize merging or deployment. Obtain the project owner's explicit approval for the specific PR or revision before merging it or updating the live demo. Approval for an earlier change does not carry over to later fixes or follow-up requests; a request to adjust the app authorizes preparing the change for review, not publishing it.
-
-After the project owner explicitly approves publishing the reviewed change, run:
+Creating a PR does not authorize merging. Obtain the project owner's explicit approval for the specific PR before merging it; approval for an earlier change does not carry over to later fixes or follow-up requests. Approval to merge also covers publishing: after each merge, publish the merged `main` so the live demo stays in sync with it:
 
 ```bash
 uv run python scripts/publish_pages.py
 ```
 
-This rebuilds the static assets and pushes them to the repository’s `gh-pages` branch. It requires repository push rights and normal Git authentication. In GitHub **Settings → Pages**, choose **Deploy from a branch**, then **gh-pages** and **/ (root)**. Publishing is explicit; pushing changes to `main` does not automatically update the demo.
+This rebuilds the static assets and pushes them to the repository’s `gh-pages` branch. It requires repository push rights and normal Git authentication. In GitHub **Settings → Pages**, choose **Deploy from a branch**, then **gh-pages** and **/ (root)**. Publishing is a separate command, run after each merge; pushing to `main` alone does not update the demo. Run it only from `main`, never from an unmerged branch.
