@@ -989,11 +989,32 @@ function renderProfile() {
   renderProjectPicker();
 }
 
+function resizeQATextarea(input) {
+  if (!input.clientWidth) return; // Hidden fields are measured when the panel opens.
+  input.style.height = "auto";
+  input.style.height = `${input.scrollHeight + input.offsetHeight - input.clientHeight}px`;
+}
+function resizeQAFields() {
+  for (const input of $("qa-editor").querySelectorAll("textarea")) resizeQATextarea(input);
+}
+// Only width changes affect wrapping; ignore height changes from autosizing itself.
+if (typeof ResizeObserver !== "undefined") {
+  let editorWidth;
+  new ResizeObserver(([entry]) => {
+    if (entry.contentRect.width === editorWidth) return;
+    editorWidth = entry.contentRect.width;
+    resizeQAFields();
+  }).observe($("qa-editor"));
+} else {
+  window.addEventListener("resize", resizeQAFields);
+}
+
 function setQACollapsed(collapsed) {
   if (collapsed && $("qa-body").contains(document.activeElement)) $("qa-toggle").focus();
   $("qa-body").hidden = collapsed;
   $("qa-toggle").setAttribute("aria-expanded", String(!collapsed));
   $("qa-toggle").textContent = collapsed ? "Expand ▾" : "Collapse ▴";
+  if (!collapsed) resizeQAFields();
 }
 $("qa-toggle").addEventListener("click", () => setQACollapsed(!$("qa-body").hidden));
 
@@ -1049,7 +1070,7 @@ function renderQAEditor() {
     const wrapper = el("label", "qa-field", label);
     const input = el("textarea"); input.value = q[key]; input.maxLength = max; input.rows = rows;
     input.setAttribute("aria-label", label);
-    input.addEventListener("input", () => { q[key] = input.value; qaSave(q); }); wrapper.append(input); return wrapper;
+    input.addEventListener("input", () => { resizeQATextarea(input); q[key] = input.value; qaSave(q); }); wrapper.append(input); return wrapper;
   }
   const columns = el("div", "qa-editor-columns");
   const answers = el("div", "qa-answer-panel");
@@ -1068,7 +1089,7 @@ function renderQAEditor() {
     radio.setAttribute("aria-label", `Option ${String.fromCharCode(65 + i)} is correct`);
     radio.addEventListener("change", () => { q.correct_option_id = option.id; qaSave(q); });
     const input = el("textarea"); input.rows = 1; input.maxLength = 5000; input.value = option.text; input.setAttribute("aria-label", `Option ${String.fromCharCode(65 + i)}`);
-    input.addEventListener("input", () => { option.text = input.value; qaSave(q); });
+    input.addEventListener("input", () => { resizeQATextarea(input); option.text = input.value; qaSave(q); });
     const remove = qaButton("×", () => { q.options = q.options.filter(o => o.id !== option.id); if (q.correct_option_id === option.id) q.correct_option_id = null; qaSave(q); renderQAEditor(); }, "qa-remove");
     remove.setAttribute("aria-label", `Remove option ${String.fromCharCode(65 + i)}`);
     row.append(radio, el("span", "", String.fromCharCode(65 + i)), input, remove); answers.append(row);
@@ -1108,6 +1129,7 @@ function renderQAEditor() {
     clip.questions = clip.questions.filter(item => item.id !== q.id); qaQuestionId = null; qaSave(); renderQA(); renderClips();
   }, "text-button"));
   host.append(error, footer);
+  resizeQAFields();
 }
 $("qa-add").addEventListener("click", () => {
   const clip = qaClip(); if (!clip || clip.questions.length >= 100) return;
