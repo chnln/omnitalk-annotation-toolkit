@@ -67,19 +67,21 @@
 
 .project-picker{display:flex;align-items:center;gap:4px;margin:0 4px 8px}.project-picker select{flex:1;min-width:0;font-size:12px;color:#56616d;background:white;border:1px solid #e7ebed;border-radius:6px;padding:7px 8px}.project-picker[hidden]{display:none}
 
-/* Scroll long libraries independently so choosing a video keeps the player in view. */
+/* Let both desktop columns use the full height below the app header. */
 @media(min-width:721px) {
-  .video-list {
-    max-height:clamp(100px,calc(100dvh - 540px),520px);
-    overflow-y:auto;
+  body { display:flex; flex-direction:column; height:100dvh; overflow:hidden; }
+  .topbar, .browser-demo-notice { flex-shrink:0; }
+  .app-layout { flex:1; min-height:0; overflow:hidden; }
+  .sidebar, main { min-height:0; overflow-y:auto; }
+  .sidebar {
     overscroll-behavior-y:contain;
     scrollbar-gutter:stable;
-    padding:4px;
-    margin:-4px;
   }
+  .sidebar .workspace-label { flex-shrink:0; }
+  .sidebar-content { flex:1 0 auto; }
   .video-list > * { flex-shrink:0; }
-  .video-list::-webkit-scrollbar { width:8px; }
-  .video-list::-webkit-scrollbar-track { background:#edf2ef; border-radius:4px; }
-  .video-list::-webkit-scrollbar-thumb { background:#9bb4a9; border-radius:4px; }
-  .video-list::-webkit-scrollbar-thumb:hover { background:#738c80; }
+  .sidebar::-webkit-scrollbar { width:8px; }
+  .sidebar::-webkit-scrollbar-track { background:#edf2ef; border-radius:4px; }
+  .sidebar::-webkit-scrollbar-thumb { background:#9bb4a9; border-radius:4px; }
+  .sidebar::-webkit-scrollbar-thumb:hover { background:#738c80; }
 }
