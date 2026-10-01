@@ -27,7 +27,7 @@
 .qa-question-number { display:block; margin-bottom:7px; font-size:11px; color:#60766a; text-transform:uppercase; letter-spacing:.06em; }
 .qa-question strong { display:block; font-size:13px; line-height:1.5; }
 .qa-field { display:block; font-size:13px; font-weight:600; margin:0 0 12px; }
-.qa-field textarea, .qa-option textarea { display:block; width:100%; min-height:36px; padding:7px 9px; border:1px solid #ccd9d1; border-radius:8px; background:#fff; color:#233a30; font:inherit; font-weight:400; line-height:1.5; resize:vertical; }
+.qa-field textarea, .qa-option textarea { display:block; width:100%; min-height:36px; padding:7px 9px; border:1px solid #ccd9d1; border-radius:8px; background:#fff; color:#233a30; font:inherit; font-weight:400; line-height:1.5; resize:none; overflow-y:hidden; }
 .qa-field textarea { margin-top:8px; }
 .qa-option { display:grid; grid-template-columns:20px 18px minmax(0,1fr) 28px; align-items:center; gap:8px; margin:6px 0; }
 .qa-option input[type=radio] { width:17px; height:17px; accent-color:#347251; }
