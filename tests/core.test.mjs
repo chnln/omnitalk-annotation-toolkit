@@ -140,7 +140,7 @@ test("schema 1.0 migrates without interpreting notes; current schema preserves m
   const old = structuredClone(p); old.schema_version = "1.0";
   delete old.videos[0].clips[0].questions; delete old.videos[0].clips[0].subtitle_status;
   const migrated = validateProject(old);
-  assert.equal(migrated.schema_version, "1.2");
+  assert.equal(migrated.schema_version, "1.3");
   assert.equal(migrated.videos[0].clips[0].note, "Question: keep this note");
   assert.deepEqual(migrated.videos[0].clips[0].questions, []);
   v.clips[0].questions.push(createQuestion(), createQuestion());
@@ -194,6 +194,42 @@ test("1.1 imports attribute clips to the project annotator; 1.2 keeps per-clip a
   assert.equal(annotatorLabel({ id: "P1", name: "Nan" }), "Nan (P1)");
   assert.equal(annotatorLabel({ id: "P1", name: " " }), "P1");
   assert.equal(annotatorLabel({ id: "", name: "" }), "");
+});
+
+test("1.3 clips carry a trimmed single-line reference ID; older schemas migrate to an empty one", async () => {
+  const p = createProject(); const v = createVideo(parseYouTubeUrl("M7lc1UVf-VE"));
+  v.clips.push(createClip({ ref_id: "  R4-C06 ", start_seconds: 0, end_seconds: 10, note: "Clip ID: R4-C06", tags: ["R4-C06"] }, null, { id: "", name: "Nan" }));
+  p.videos.push(v);
+  assert.equal(v.clips[0].ref_id, "R4-C06");
+  assert.equal(validateProject(structuredClone(p)).videos[0].clips[0].ref_id, "R4-C06");
+  assert.equal(createClip({ start_seconds: 0, end_seconds: 1 }).ref_id, "", "the field is optional when creating a clip");
+  const old = structuredClone(p); old.schema_version = "1.2"; delete old.videos[0].clips[0].ref_id;
+  const migrated = validateProject(old);
+  assert.equal(migrated.videos[0].clips[0].ref_id, "", "notes and tags are never parsed for a reference ID");
+  assert.deepEqual(migrated.videos[0].clips[0].annotator, { id: "", name: "Nan" }, "1.2 keeps per-clip annotators");
+  for (const mutate of [
+    (x) => { delete x.videos[0].clips[0].ref_id; },
+    (x) => { x.videos[0].clips[0].ref_id = null; },
+    (x) => { x.videos[0].clips[0].ref_id = "R4\nC06"; },
+    (x) => { x.videos[0].clips[0].ref_id = "x".repeat(101); },
+  ]) {
+    const broken = structuredClone(p); mutate(broken);
+    assert.throws(() => validateProject(broken), Error, mutate.toString());
+  }
+});
+
+test("reference IDs are listed per video, searchable in the library, and checked for reuse", async () => {
+  const { filterVideos, videoRefIds, refIdConflicts } = await import("../src/annotation_toolkit/static/core.js");
+  const a = createVideo(parseYouTubeUrl("M7lc1UVf-VE")); const b = createVideo(parseYouTubeUrl("jNQXAC9IVRw"));
+  a.clips.push(createClip({ ref_id: "R5-14", start_seconds: 20, end_seconds: 30 }), createClip({ ref_id: "R5-13", start_seconds: 0, end_seconds: 10 }), createClip({ start_seconds: 40, end_seconds: 50 }));
+  b.clips.push(createClip({ start_seconds: 0, end_seconds: 5 }));
+  assert.deepEqual(videoRefIds(a), ["R5-13", "R5-14"], "time order, empty IDs omitted");
+  assert.deepEqual(videoRefIds(b), []);
+  assert.deepEqual(filterVideos([a, b], { query: "r5-14" }), [a]);
+  assert.deepEqual(filterVideos([a, b], { query: "jNQXAC9IVRw" }), [b]);
+  assert.equal(refIdConflicts([a, b], "r5-14").length, 1);
+  assert.equal(refIdConflicts([a, b], "R5-14", a.clips[0].id).length, 0, "a clip does not conflict with itself");
+  assert.equal(refIdConflicts([a, b], "").length, 0, "clips without IDs never conflict");
 });
 
 test("library filters combine title/ID text, annotator, and question status", async () => {

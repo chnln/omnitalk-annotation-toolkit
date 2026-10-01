@@ -53,7 +53,7 @@ uv run annotation-toolkit --download-dir "/absolute/path/to/output"
 
 1. Set a project name. **Annotator ID** and **Display name** are optional; they identify the author in exported JSON, not a login. Each new clip records the annotator entered when it is added, so one project can hold videos collected by several people; the **Video library** shows each video's annotator under its title. Changing these fields later does not reassign existing clips.
 2. Paste a YouTube link or video ID and click **Load video**. Switch between videos in **Video library**; each keeps its clips and unfinished draft.
-3. Set **Start time** and **End time**, or click **Use current** while playing. Add **Note** and **Tags**, then click **Add clip**.
+3. Set **Start time** and **End time**, or click **Use current** while playing. Optionally enter a **Reference ID** from your own catalog (such as `R4-C06`). Add **Note** and **Tags**, then click **Add clip**.
 4. Preview, edit, or delete clips from the list. **Download all** applies to every saved clip of the selected video, including clips hidden by search, but excludes unfinished drafts and other videos.
 5. Narrow the **Video library** with the filters under its heading: title or YouTube ID, annotator (anyone who added a clip to the video), and question status (has Draft questions, all questions Ready, clips without questions, or no clips yet). Filters combine, only change what the sidebar shows, and are not saved in the project.
 6. Use **Export JSON** to keep a backup or share annotations. **Import JSON** accepts several files at once. Each file stays a separate project: use the file selector at the top of the sidebar to switch between them, or the trash button beside it to remove one from browser storage.
@@ -89,13 +89,15 @@ Download only content you have permission to use. The toolkit does not import lo
 
 ## Annotation JSON schema
 
-The current format is **schema `1.2`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.3.0`. The English interface accepts Unicode text in names, notes, and tags.
+For generated datasets, use the **[standalone import specification](SCHEMA.md)** and the **[importable example with a complete question](examples/annotation-project-1.3.json)**. The specification includes exact field limits, enum values, source-time conversion, and a command that runs the app's actual import validator. Research catalogs and flat QA arrays require conversion before import.
+
+The current format is **schema `1.3`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.3.0`. Version 1.3 adds an optional per-clip `ref_id`; releases up to `v0.3.0` cannot import 1.3 files. See [schema versions](SCHEMA.md#schema-versions) for each version's changes and how older files migrate. The English interface accepts Unicode text in names, notes, and tags.
 
 ### Project fields
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | Exports use `"1.2"`; legacy `"1.0"` and `"1.1"` files are migrated on import. |
+| `schema_version` | string | Exports use `"1.3"`; legacy `"1.0"`, `"1.1"` and `"1.2"` files are migrated on import. |
 | `project_id` | UUID string | Identifies this project. |
 | `project_name` | string | User-entered project name. |
 | `annotator` | object | The current annotator: contains `id` and `name`, both strings. Either may be empty (`""`); neither creates an account. New clips copy it as their own `annotator`. |
@@ -121,13 +123,14 @@ The current format is **schema `1.2`**, shared by the local app and browser edit
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `id` | UUID string | Annotation record ID, preserved when editing the clip. It is not a download job ID. |
+| `ref_id` | string | Optional reference ID from your own catalog, such as `R4-C06`; `""` when there is none. |
 | `start_seconds`, `end_seconds` | numbers | Boundaries measured from the beginning of the **original video**, not from a downloaded clip. |
 | `annotator` | object | Who created the clip: `id` and `name` strings, copied from the project annotator when the clip was added. Editing the clip keeps it. Both may be empty for an unattributed record. |
 | `note` | string | Free-text observation; may be empty (`""`). |
 | `tags` | array of strings | Labels such as `"conversation"`; may be empty (`[]`). |
 | `created_at`, `updated_at` | timestamp strings | Clip creation and last recorded modification. These are not an edit history. |
 
-All fields above are required for schema 1.2 on import except `exported_at`; optional user input is represented by empty strings or arrays, rather than missing fields. Project, video record, and clip UUIDs must be unique across the file. Timestamps are ISO 8601 strings and are exported in UTC (`Z`). Clip boundaries are numeric seconds rounded to milliseconds: `0 <= start_seconds < end_seconds`, with the end no later than the video duration when known. Clip duration is calculated as `end_seconds - start_seconds`; it is not a separate field. Millisecond storage does not guarantee frame-accurate playback or cutting.
+All fields above are required for schema 1.3 on import except `exported_at`; optional user input is represented by empty strings or arrays, rather than missing fields. Project, video record, and clip UUIDs must be unique across the file. Timestamps are ISO 8601 strings and are exported in UTC (`Z`). Clip boundaries are numeric seconds rounded to milliseconds: `0 <= start_seconds < end_seconds`, with the end no later than the video duration when known. Clip duration is calculated as `end_seconds - start_seconds`; it is not a separate field. Millisecond storage does not guarantee frame-accurate playback or cutting.
 
 ### Questions (`videos[].clips[].questions[]`)
 
@@ -140,16 +143,16 @@ Each clip adds `subtitle_status` (`unknown`, `none`, `present`, or `masked`) and
 | `options` | array | Up to 26 objects with stable UUID `id` and string `text`. Display letters are derived from order. |
 | `correct_option_id` | UUID string or `null` | References one existing option. Deleting that option clears the answer. |
 | `required_modalities` | array | Any combination of `audio`, `visual`, `text`. |
-| `evidence_cues` | array | Optional cues belonging to selected modalities; see below. |
+| `evidence_cues` | array | Required field; use `[]` when no optional cues are selected. Each cue must belong to a selected modality; see below. |
 | `rationale` | string | Why these sources are needed; may be empty. |
 | `status` | string | `draft` or `ready`; Ready means author-complete, not peer-reviewed. |
 | `created_at`, `updated_at` | timestamp strings | Question creation and modification times. |
 
 Audio cues: `speech_content`, `prosody`, `environmental_sounds`. Visual cues: `action_event`, `gesture`, `facial_expression`, `gaze`, `person_appearance`, `object_scene`. Text cues: `subtitles`, `scene_text`. These describe the author's intended evidence requirements, not a verified ablation result. Question/option text itself does not count as a Text requirement.
 
-Drafts can be incomplete. Ready requires a nonempty prompt, at least two nonempty options, one correct answer, and at least one modality. Audio-only integration (such as speech plus prosody) is valid. All question fields are required in schema 1.2. IDs must be unique across project, video, clip, question and option records. Each clip supports up to 100 questions.
+Drafts can be incomplete. Ready requires a nonempty prompt, at least two options with no blank option among them, one correct answer, and at least one modality. Audio-only integration (such as speech plus prosody) is valid. All question fields are required in schema 1.3. IDs must be unique across project, video, clip, question and option records. Each clip supports up to 100 questions.
 
-Legacy schema 1.0 imports preserve existing notes and tags, add `questions: []` and `subtitle_status: "unknown"`, and export as 1.2. Notes are never automatically interpreted as questions. Schema 1.1 imports have no per-clip annotators, so each clip is attributed to the file's project `annotator`, then exported as 1.2. Older app releases cannot import newer schemas; keep original exports if you need to return to an older release.
+Legacy schema 1.0 imports preserve existing notes and tags, add `questions: []` and `subtitle_status: "unknown"`, and export as 1.3. Notes are never automatically interpreted as questions. Schema 1.1 imports have no per-clip annotators, so each clip is attributed to the file's project `annotator`, then exported as 1.3. Schema 1.2 imports gain an empty `ref_id` on every clip; notes and tags are not parsed for one. Older app releases cannot import newer schemas; keep original exports if you need to return to an older release.
 
 ### Complete example
 
@@ -157,7 +160,7 @@ This example can be saved as a UTF-8 `.json` file and imported. It describes one
 
 ```json
 {
-  "schema_version": "1.2",
+  "schema_version": "1.3",
   "project_id": "11111111-1111-4111-8111-111111111111",
   "project_name": "Conversation pilot",
   "annotator": {
@@ -179,6 +182,7 @@ This example can be saved as a UTF-8 `.json` file and imported. It describes one
       "clips": [
         {
           "id": "33333333-3333-4333-8333-333333333333",
+          "ref_id": "",
           "start_seconds": 10,
           "end_seconds": 14.25,
           "annotator": {
@@ -248,7 +252,13 @@ uv run python scripts/build_pages.py
 
 Node.js is needed for the frontend tests, not for annotation itself. The frontend uses plain HTML, CSS, and JavaScript without a JavaScript bundler. `scripts/build_pages.py` prepares the static demo in `dist/pages`.
 
-To publish the demo, run:
+### Change review and release approval
+
+Submit changes through a pull request before merging or publishing. Do not push changes directly to `main` or `gh-pages` as a shortcut around review.
+
+Creating a PR does not authorize merging or deployment. Obtain the project owner's explicit approval for the specific PR or revision before merging it or updating the live demo. Approval for an earlier change does not carry over to later fixes or follow-up requests; a request to adjust the app authorizes preparing the change for review, not publishing it.
+
+After the project owner explicitly approves publishing the reviewed change, run:
 
 ```bash
 uv run python scripts/publish_pages.py

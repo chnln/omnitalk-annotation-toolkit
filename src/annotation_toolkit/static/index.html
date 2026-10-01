@@ -66,7 +66,7 @@
         <div class="sidebar-divider"></div>
         <div class="library-heading"><h2>Video library <span id="video-count" class="count-pill">0</span></h2><button class="icon-button" id="add-video-focus" aria-label="Add video"><svg class="icon"><use href="#i-plus"/></svg></button></div>
         <div class="library-filters" id="library-filters" role="search" aria-label="Filter video library" hidden>
-          <label class="library-search"><svg class="icon"><use href="#i-search"/></svg><input id="library-search" placeholder="Filter by title or ID" aria-label="Filter videos by title or ID" autocomplete="off"></label>
+          <label class="library-search"><svg class="icon"><use href="#i-search"/></svg><input id="library-search" placeholder="Filter by title, YouTube ID, or ref ID" aria-label="Filter videos by title, YouTube ID, or reference ID" autocomplete="off"></label>
           <select id="library-annotator" aria-label="Filter videos by annotator"></select>
           <select id="library-status" aria-label="Filter videos by question status"></select>
           <div class="library-filter-summary" id="library-filter-summary" role="status" hidden><span id="library-filter-count"></span><button class="text-button" id="clear-library-filters" type="button">Clear filters</button></div>
@@ -128,6 +128,7 @@
                 <div class="time-field"><div class="field-label"><label for="clip-start">Start time <kbd>I</kbd></label><button type="button" class="capture-button" id="capture-start" disabled>Use current</button></div><input id="clip-start" class="time-input" placeholder="00:00.000" autocomplete="off" spellcheck="false" required></div>
                 <div class="time-field"><div class="field-label"><label for="clip-end">End time <kbd>O</kbd></label><button type="button" class="capture-button" id="capture-end" disabled>Use current</button></div><input id="clip-end" class="time-input" placeholder="00:00.000" autocomplete="off" spellcheck="false" required></div>
                 <div class="selection-duration"><svg class="icon"><use href="#i-clock"/></svg><span>Clip duration</span><strong id="selection-duration">Select a range</strong><button type="button" class="icon-button" id="preview-draft" aria-label="Preview current range" disabled><svg class="icon"><use href="#i-play"/></svg></button></div>
+                <label for="clip-ref" class="form-label">Reference ID <span class="optional">Optional, e.g. R4-C06</span></label><input id="clip-ref" class="ref-input" maxlength="100" autocomplete="off" spellcheck="false" placeholder="Your own catalog ID for this clip">
                 <label for="clip-note" class="form-label">Note <span class="optional">Optional</span></label><textarea id="clip-note" rows="4" maxlength="20000" placeholder="Speakers, interaction, or why this conversation is worth keeping…"></textarea>
                 <label for="clip-tags" class="form-label">Tags <span class="optional">Optional, comma-separated</span></label><input id="clip-tags" maxlength="1200" placeholder="e.g. group conversation, overlapping speech">
                 <p class="field-error" id="clip-error" role="alert" hidden></p>
@@ -142,7 +143,7 @@
           <div class="qa-heading"><div><span class="section-kicker">DESIGN THE QUESTIONS</span><h2 id="qa-heading">Questions</h2><p id="qa-context">Save a clip, then design its questions here.</p></div><div class="qa-heading-actions"><button type="button" class="button secondary" id="qa-add" disabled>+ Add question</button><button type="button" class="text-button" id="qa-toggle" aria-expanded="true" aria-controls="qa-body">Collapse ▴</button></div></div>
           <div id="qa-body">
           <div id="qa-content" hidden>
-            <div class="qa-clip-bar"><label for="qa-clip-select">Selected clip</label><select id="qa-clip-select" aria-label="Select clip for questions"></select><button type="button" class="button secondary" id="qa-preview">Preview clip</button><label for="qa-subtitles">Subtitle status</label><select id="qa-subtitles"><option value="unknown">Not reviewed</option><option value="none">No subtitles</option><option value="present">With subtitles</option><option value="masked">Subtitle masked</option></select></div>
+            <div class="qa-clip-bar"><label for="qa-clip-select">Selected clip</label><select id="qa-clip-select" aria-label="Select clip for questions"></select><button type="button" class="button secondary ref-copy" id="qa-copy-ref" title="Copy reference ID" hidden></button><button type="button" class="button secondary" id="qa-preview">Preview clip</button><label for="qa-subtitles">Subtitle status</label><select id="qa-subtitles"><option value="unknown">Not reviewed</option><option value="none">No subtitles</option><option value="present">With subtitles</option><option value="masked">Subtitle masked</option></select></div>
             <p class="qa-help">Subtitle status describes the clip; it does not mask or modify the video.</p>
             <div class="qa-layout"><nav id="qa-list" aria-label="Questions for selected clip"></nav><div id="qa-editor"></div></div>
           </div>

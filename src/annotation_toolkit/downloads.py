@@ -438,8 +438,8 @@ def validate_export(data):
 
     obj(data, "Project")
     version = data.get("schema_version")
-    if version not in ("1.0", "1.1", "1.2"):
-        raise DownloadError("Unsupported annotation schema; expected version 1.0, 1.1 or 1.2.")
+    if version not in ("1.0", "1.1", "1.2", "1.3"):
+        raise DownloadError("Unsupported annotation schema; expected version 1.0, 1.1, 1.2 or 1.3.")
     identifier(data.get("project_id"))
     text(data.get("project_name"), "Project name", 200)
     annotator(data.get("annotator"), "Annotator")
@@ -481,9 +481,14 @@ def validate_export(data):
                 raise DownloadError("Clip tags must be a list with at most 50 entries.")
             for tag in tags:
                 text(tag, "Tag", 100)
-            if version == "1.2":
+            if version == "1.3":
+                ref_id = clip.get("ref_id")
+                text(ref_id, "Reference ID", 100)
+                if ref_id != ref_id.strip() or "\n" in ref_id or "\r" in ref_id:
+                    raise DownloadError("Reference ID must be a single trimmed line.")
+            if version in ("1.2", "1.3"):
                 annotator(clip.get("annotator"), "Clip annotator")
-            if version in ("1.1", "1.2"):
+            if version in ("1.1", "1.2", "1.3"):
                 if clip.get("subtitle_status") not in ("unknown", "none", "present", "masked"):
                     raise DownloadError("Invalid subtitle status.")
                 questions = clip.get("questions")
