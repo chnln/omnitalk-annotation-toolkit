@@ -34,6 +34,23 @@ class QuestionExportTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(DownloadError):
                 validate_export(p)
 
+    def test_schema_1_3_requires_trimmed_reference_ids(self):
+        p = self.fixture()
+        p['schema_version'] = '1.3'
+        clip = p['videos'][0]['clips'][0]
+        clip['annotator'] = {'id': '', 'name': 'Nan'}
+        for ref in ('', 'R4-C06'):
+            clip['ref_id'] = ref
+            self.assertEqual(validate_export(copy.deepcopy(p)), p)
+        for ref in (None, 7, ' R4-C06', 'R4\nC06', 'x' * 101):
+            broken = copy.deepcopy(p)
+            broken['videos'][0]['clips'][0]['ref_id'] = ref
+            with self.subTest(ref=ref), self.assertRaises(DownloadError):
+                validate_export(broken)
+        del clip['ref_id']
+        with self.assertRaises(DownloadError):
+            validate_export(p)
+
     def test_schema_1_2_requires_clip_annotators(self):
         p = self.fixture()
         p['schema_version'] = '1.2'

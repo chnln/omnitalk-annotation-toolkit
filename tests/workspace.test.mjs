@@ -164,8 +164,8 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
     };
     window.onYouTubeIframeAPIReady?.();
   }
-  function fill(start, end, note, tags = "") {
-    for (const [id, value] of Object.entries({ "clip-start": start, "clip-end": end, "clip-note": note, "clip-tags": tags })) node(id).value = value;
+  function fill(start, end, note, tags = "", ref = "") {
+    for (const [id, value] of Object.entries({ "clip-ref": ref, "clip-start": start, "clip-end": end, "clip-note": note, "clip-tags": tags })) node(id).value = value;
   }
   return { api, node, storage, instances, refreshes, downloadOpens, exports, blobs, libraryItem, deleteButton, confirm, flush, resolveAPI, fill, window, document, advanceTime: (milliseconds) => { now += milliseconds; } };
 }
@@ -694,7 +694,7 @@ test("clips record their annotator, keep it across edits and profile changes, an
   assert.equal(w.node("clips-body").children[0].children.length, 5, "the clips table has no annotator column");
   await w.api.exportProject();
   const exported = core.validateProject(w.exports[0]);
-  assert.equal(exported.schema_version, "1.2");
+  assert.equal(exported.schema_version, "1.3");
   assert.equal(exported.videos[0].clips[0].annotator.name, "Nan");
 });
 
@@ -894,4 +894,37 @@ test("legacy migration fits when the old data fills most of the quota, and resto
   assert.equal(full.api.state().storageBlocked, true);
   assert.equal(full.node("storage-warning").hidden, false);
   assert.equal(full.api.state().project.project_id, a.project_id);
+});
+
+test("reference IDs are entered with the clip, shown in the library, clip table, and QA bar, and omitted when absent", async () => {
+  const w = workspace();
+  w.api.addVideo("M7lc1UVf-VE"); w.fill("0", "10", "ours", "", " R4-C06 "); w.api.saveClip();
+  w.fill("20", "30", "collaborator clip"); w.api.saveClip();
+  const video = () => w.api.state().project.videos[0];
+  const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
+  const byClass = (root, name) => descendants(root).filter((n) => n.className.split(" ").includes(name));
+  assert.deepEqual(video().clips.map((clip) => clip.ref_id), ["R4-C06", ""]);
+  const ref = w.libraryItem("M7lc1UVf-VE").querySelector(".video-item-ref");
+  assert.equal(ref.textContent, "R4-C06"); assert.equal(ref.hidden, false);
+  assert.equal(byClass(w.libraryItem("M7lc1UVf-VE"), "video-item-thumbnail").length, 0, "the library has no placeholder thumbnail");
+  const rows = w.node("clips-body").children;
+  assert.deepEqual(byClass(rows[0], "ref-badge").map((n) => n.textContent), ["R4-C06"]);
+  assert.equal(byClass(rows[1], "ref-badge").length, 0, "clips without an ID keep only their sequence number");
+  assert.equal(w.node("qa-copy-ref").hidden, true, "the QA bar follows the just-saved clip, which has no ID");
+  w.node("qa-clip-select").value = video().clips[0].id; await w.node("qa-clip-select").fire("change");
+  assert.equal(w.node("qa-copy-ref").hidden, false); assert.equal(w.node("qa-copy-ref").textContent, "R4-C06");
+  assert.match(w.node("qa-context").textContent, /^R4-C06 · /);
+  w.api.addVideo("jNQXAC9IVRw"); w.fill("1", "3", "no id"); w.api.saveClip();
+  assert.equal(w.libraryItem("jNQXAC9IVRw").querySelector(".video-item-ref").hidden, true);
+  assert.equal(w.node("qa-copy-ref").hidden, true);
+  w.node("library-search").value = "r4-c06"; await w.node("library-search").fire("input");
+  assert.equal(w.libraryItem("jNQXAC9IVRw"), undefined); assert.ok(w.libraryItem("M7lc1UVf-VE"));
+  w.node("library-search").value = ""; await w.node("library-search").fire("input");
+  w.api.selectVideo(video().id);
+  await w.api.editClip(video().clips[0]);
+  assert.equal(w.node("clip-ref").value, "R4-C06", "editing loads the reference ID");
+  w.fill("0", "10", "ours", "", "R4-C07"); w.api.saveClip();
+  assert.equal(video().clips[0].ref_id, "R4-C07");
+  await w.api.exportProject();
+  assert.equal(w.exports[0].videos[0].clips[0].ref_id, "R4-C07");
 });

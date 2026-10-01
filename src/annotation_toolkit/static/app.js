@@ -1,7 +1,7 @@
 import {
   STORAGE_KEY, LIMITS, createProject, createVideo, createClip, createQuestion, questionReadyError, MODALITIES,
   parseYouTubeUrl, parseTime, formatTime, validateProject,
-  projectAnnotators, filterVideos, QUESTION_STATUS_FILTERS,
+  projectAnnotators, filterVideos, QUESTION_STATUS_FILTERS, videoRefIds, refIdConflicts,
 } from "./core.js";
 import { initDownloads } from "./downloads.js";
 
@@ -12,7 +12,9 @@ const WORKSPACE_KEY = `${STORAGE_KEY}.workspace`;
 const SHELF_KEY = `${STORAGE_KEY}.shelf`; // legacy: read once to migrate
 const PROJECTS_KEY = "omnitalk.annotation.projects.v2"; // { version: 2, projects: [...every loaded file] }
 const SIDEBAR_KEY = "omnitalk.annotation.sidebar.collapsed.v1";
-const draftFields = ["clip-start", "clip-end", "clip-note", "clip-tags"];
+const draftFields = ["clip-ref", "clip-start", "clip-end", "clip-note", "clip-tags"];
+const draftKeys = ["ref", "start", "end", "note", "tags"];
+const emptyDraft = () => ({ ref: "", start: "", end: "", note: "", tags: "", editing_id: null });
 const clock = (seconds) => formatTime(seconds, { milliseconds: true });
 let project = createProject();
 let shelf = []; // imported projects that are loaded but not currently open
@@ -172,6 +174,8 @@ function validDrafts(item, saved) {
     const draft = saved[video.id];
     if (draft && ["start", "end", "note", "tags"].every((key) => typeof draft[key] === "string" && draft[key].length <= 20000)) {
       result[video.id] = {
+        // Drafts saved before reference IDs existed have no ref.
+        ref: typeof draft.ref === "string" && draft.ref.length <= 100 ? draft.ref : "",
         start: draft.start, end: draft.end, note: draft.note, tags: draft.tags,
         editing_id: video.clips.some((clip) => clip.id === draft.editing_id) ? draft.editing_id : null,
       };
@@ -253,21 +257,21 @@ const currentVideo = () => project.videos.find((video) => video.id === activeId)
 const knownDuration = () => mediaDuration || currentVideo()?.duration_seconds || null;
 
 function currentDraft() {
-  return { start: $("clip-start").value, end: $("clip-end").value, note: $("clip-note").value, tags: $("clip-tags").value, editing_id: editingId };
+  return { ref: $("clip-ref").value, start: $("clip-start").value, end: $("clip-end").value, note: $("clip-note").value, tags: $("clip-tags").value, editing_id: editingId };
 }
 
 function rememberDraft(persist = true) {
   if (!activeId) return;
   const draft = currentDraft();
-  if (draft.editing_id || draft.start || draft.end || draft.note || draft.tags) drafts[activeId] = draft;
+  if (draft.editing_id || draftKeys.some((key) => draft[key])) drafts[activeId] = draft;
   else delete drafts[activeId];
   if (persist) persistWorkspace();
 }
 
 function restoreDraft() {
-  const draft = drafts[activeId] || { start: "", end: "", note: "", tags: "", editing_id: null };
+  const draft = drafts[activeId] || emptyDraft();
   editingId = draft.editing_id;
-  draftFields.forEach((id, index) => { $(id).value = draft[["start", "end", "note", "tags"][index]]; });
+  draftFields.forEach((id, index) => { $(id).value = draft[draftKeys[index]] ?? ""; });
   $("editor-title").textContent = editingId ? "Edit clip" : "New clip";
   $("save-clip-label").textContent = editingId ? "Save changes" : "Add clip";
   $("cancel-edit").hidden = !editingId;
@@ -288,9 +292,9 @@ function splitTags(value) {
 function isDirtyDraft(draft, video) {
   if (!draft) return false;
   const clip = video.clips.find((item) => item.id === draft.editing_id);
-  if (!clip) return !!(draft.start || draft.end || draft.note || draft.tags);
+  if (!clip) return draftKeys.some((key) => draft[key]);
   try {
-    return parseTime(draft.start) !== clip.start_seconds || parseTime(draft.end) !== clip.end_seconds || draft.note !== clip.note || JSON.stringify(splitTags(draft.tags)) !== JSON.stringify(clip.tags);
+    return (draft.ref ?? "").trim() !== clip.ref_id || parseTime(draft.start) !== clip.start_seconds || parseTime(draft.end) !== clip.end_seconds || draft.note !== clip.note || JSON.stringify(splitTags(draft.tags)) !== JSON.stringify(clip.tags);
   } catch { return true; }
 }
 
@@ -300,6 +304,24 @@ function videoDetail(video) {
   if (authors.length === 1) parts.push(authors[0].label || "Unattributed");
   else if (authors.length > 1) parts.push(`${authors.length} annotators`);
   return parts.join(" · ");
+}
+
+/** "R4-C06", or "R4-C06 +2" for several referenced clips; hidden when no clip has a reference ID. */
+function setVideoRefLabel(label, video) {
+  const refs = videoRefIds(video);
+  label.textContent = refs.length ? `${refs[0]}${refs.length > 1 ? ` +${refs.length - 1}` : ""}` : "";
+  label.title = refs.length > 1 ? refs.join(", ") : "";
+  label.hidden = !refs.length;
+  return label;
+}
+
+function refBadge(clip) {
+  const badge = el("button", "ref-badge", clip.ref_id);
+  badge.type = "button";
+  badge.title = `Copy reference ID ${clip.ref_id}`;
+  badge.setAttribute("aria-label", badge.title);
+  badge.addEventListener("click", () => copyText(clip.ref_id));
+  return badge;
 }
 
 function renderLibraryFilters() {
@@ -336,11 +358,9 @@ function renderVideos() {
     button.title = video.title;
     button.setAttribute("aria-label", `Select video: ${video.title}`);
     if (video.id === activeId) button.setAttribute("aria-current", "true");
-    const thumbnail = el("span", "video-item-thumbnail");
-    thumbnail.append(icon("video"));
     const info = el("span", "video-item-info");
-    info.append(el("span", "video-item-title", video.title || video.video_id), el("span", "video-item-detail", videoDetail(video)));
-    button.append(thumbnail, info);
+    info.append(setVideoRefLabel(el("span", "video-item-ref"), video), el("span", "video-item-title", video.title || video.video_id), el("span", "video-item-detail", videoDetail(video)));
+    button.append(info);
     if (video.id === activeId) button.append(el("span", "video-item-indicator"));
     button.addEventListener("click", () => selectVideo(video.id));
     row.append(button, actionButton(`Delete video: ${video.title}`, "trash", () => deleteVideo(video.id), "delete-video-button"));
@@ -355,6 +375,7 @@ function updateVideoMetadata(video) {
   if (button) {
     button.title = video.title;
     button.setAttribute("aria-label", `Select video: ${video.title}`);
+    setVideoRefLabel(button.querySelector(".video-item-ref"), video);
     button.querySelector(".video-item-title").textContent = video.title || video.video_id;
     button.querySelector(".video-item-detail").textContent = videoDetail(video);
     const remove = row.querySelector(".delete-video-button");
@@ -386,10 +407,11 @@ function renderClips() {
     ? `Clips for ${video.title || video.video_id}, sorted by start time.`
     : "Load a video, then add clips to this list.";
   const query = $("clips-search").value.trim().toLocaleLowerCase();
-  const clips = allClips.filter((clip) => `${clip.note} ${clip.tags.join(" ")} ${(clip.questions || []).map(q => q.prompt).join(" ")}`.toLocaleLowerCase().includes(query));
+  const clips = allClips.filter((clip) => `${clip.ref_id} ${clip.note} ${clip.tags.join(" ")} ${(clip.questions || []).map(q => q.prompt).join(" ")}`.toLocaleLowerCase().includes(query));
   $("clip-count").textContent = allClips.length;
   $("clips-empty").hidden = allClips.length > 0;
   $("clips-table-container").hidden = !clips.length;
+  $("clips-table-container").classList.toggle("has-refs", clips.some((clip) => clip.ref_id));
   $("no-results").hidden = !allClips.length || !!clips.length;
   $("clips-body").replaceChildren(...clips.map((clip) => {
     const number = String(allClips.indexOf(clip) + 1).padStart(3, "0");
@@ -400,7 +422,10 @@ function renderClips() {
     const play = actionButton(`Play clip ${number}`, "play", () => previewInterval(clip.start_seconds, clip.end_seconds));
     play.dataset.action = "play-clip";
     play.disabled = !playerReady;
-    numberLabel.append(play, document.createTextNode(number));
+    const identity = el("span", "clip-identity");
+    if (clip.ref_id) identity.append(refBadge(clip));
+    identity.append(el("span", "clip-sequence", number));
+    numberLabel.append(play, identity);
     numberCell.append(numberLabel);
     const timeCell = el("td");
     timeCell.append(el("div", "clip-time", `${clock(clip.start_seconds)} → ${clock(clip.end_seconds)}`), el("div", "clip-length", `${(clip.end_seconds - clip.start_seconds).toFixed(3)} s`));
@@ -436,7 +461,7 @@ function renderTimeline() {
   if (!duration) return;
   for (const [index, clip] of sortedClips().entries()) {
     const band = el("button", "timeline-clip");
-    const label = `Clip ${index + 1}: ${clock(clip.start_seconds)} to ${clock(clip.end_seconds)}`;
+    const label = `Clip ${index + 1}${clip.ref_id ? ` (${clip.ref_id})` : ""}: ${clock(clip.start_seconds)} to ${clock(clip.end_seconds)}`;
     band.title = label;
     band.setAttribute("aria-label", label);
     band.style.left = `${Math.min(100, clip.start_seconds / duration * 100)}%`;
@@ -756,6 +781,7 @@ function captureTime(id) {
 
 function draftClip() {
   return createClip({
+    ref_id: $("clip-ref").value,
     start_seconds: parseTime($("clip-start").value), end_seconds: parseTime($("clip-end").value),
     note: $("clip-note").value, tags: splitTags($("clip-tags").value),
   }, knownDuration(), project.annotator);
@@ -797,7 +823,11 @@ function saveClip(event) {
     renderStats();
     const savedId = existing >= 0 ? video.clips[existing].id : clip.id;
     $("clips-body").querySelector(`[data-clip-id="${savedId}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    showToast(existing >= 0 ? "Clip changes saved" : "Clip added to the list");
+    const saved = existing >= 0 ? video.clips[existing] : clip;
+    // Duplicates are allowed (e.g. a deliberate re-cut) but usually signal a typo, so say so.
+    const duplicates = refIdConflicts(project.videos, saved.ref_id, saved.id).length;
+    if (duplicates) showToast(`Saved. Reference ID ${saved.ref_id} is also used by ${duplicates} other ${duplicates === 1 ? "clip" : "clips"}.`, true);
+    else showToast(existing >= 0 ? "Clip changes saved" : "Clip added to the list");
   } catch (error) { fieldError("clip-error", error.message); }
 }
 
@@ -822,7 +852,7 @@ async function editClip(clip) {
   const video = currentVideo();
   if (isDirtyDraft(currentDraft(), video) && !await confirmAction("Edit this clip?", "This will replace the unfinished draft in the editor. Your saved clips will not change.", "Start editing")) return;
   qaClipId = clip.id;
-  drafts[activeId] = { start: clock(clip.start_seconds), end: clock(clip.end_seconds), note: clip.note, tags: clip.tags.join(", "), editing_id: clip.id };
+  drafts[activeId] = { ref: clip.ref_id, start: clock(clip.start_seconds), end: clock(clip.end_seconds), note: clip.note, tags: clip.tags.join(", "), editing_id: clip.id };
   restoreDraft();
   persistWorkspace();
   renderClips();
@@ -1056,8 +1086,11 @@ function renderQA() {
   const clip = qaClip();
   $("qa-add").disabled = !clip || clip.questions.length >= 100;
   $("qa-content").hidden = !clip;
-  $("qa-context").textContent = clip ? `${clock(clip.start_seconds)} – ${clock(clip.end_seconds)} · ${clip.questions.length} ${clip.questions.length === 1 ? "question" : "questions"}` : "Save a clip, then design its questions here.";
-  $("qa-clip-select").replaceChildren(...clips.map((c, i) => { const o = el("option", "", `Clip ${i + 1} · ${clock(c.start_seconds)} – ${clock(c.end_seconds)}`); o.value = c.id; return o; }));
+  $("qa-context").textContent = clip ? `${clip.ref_id ? `${clip.ref_id} · ` : ""}${clock(clip.start_seconds)} – ${clock(clip.end_seconds)} · ${clip.questions.length} ${clip.questions.length === 1 ? "question" : "questions"}` : "Save a clip, then design its questions here.";
+  $("qa-clip-select").replaceChildren(...clips.map((c, i) => { const o = el("option", "", `${c.ref_id || `Clip ${i + 1}`} · ${clock(c.start_seconds)} – ${clock(c.end_seconds)}`); o.value = c.id; return o; }));
+  $("qa-copy-ref").hidden = !clip?.ref_id;
+  $("qa-copy-ref").textContent = clip?.ref_id ?? "";
+  $("qa-copy-ref").setAttribute("aria-label", clip?.ref_id ? `Copy reference ID ${clip.ref_id}` : "Copy reference ID");
   $("qa-clip-select").value = qaClipId || "";
   if (!clip) return;
   $("qa-subtitles").value = clip.subtitle_status;
@@ -1204,6 +1237,7 @@ for (const field of ["title", "url", "id"]) {
     if (video) return copyText(video[field === "id" ? "video_id" : field]);
   });
 }
+$("qa-copy-ref").addEventListener("click", () => { const ref = qaClip()?.ref_id; if (ref) copyText(ref); });
 $("copy-export-path").addEventListener("click", () => { if (latestExport?.path) copyText(latestExport.path); });
 $("copy-export-json").addEventListener("click", () => { if (latestExport) copyText(latestExport.content); });
 $("download-export-copy").addEventListener("click", () => { if (latestExport) downloadJson(latestExport.content, latestExport.filename); });

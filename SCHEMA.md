@@ -1,4 +1,4 @@
-# Annotation JSON import specification (schema 1.2)
+# Annotation JSON import specification (schema 1.3)
 
 Use this specification when generating annotations with scripts, models, or manual editing. An import file contains **one project**, with the hierarchy **project → videos → clips → questions → options**. Research catalogs and flat QA arrays require conversion before import.
 
@@ -6,7 +6,7 @@ The executable source of truth is [core.js](src/annotation_toolkit/static/core.j
 
 ## Importable example
 
-[examples/annotation-project-1.2.json](examples/annotation-project-1.2.json) contains one project, one YouTube video, one clip, and one Draft question with two options. It demonstrates structure; its question and answer are illustrative and have not been verified against the video. For a new project, generate fresh record UUIDs and replace the source, interval, and annotation content.
+[examples/annotation-project-1.3.json](examples/annotation-project-1.3.json) contains one project, one YouTube video, one clip, and one Draft question with two options. It demonstrates structure; its question and answer are illustrative and have not been verified against the video. For a new project, generate fresh record UUIDs and replace the source, interval, and annotation content.
 
 ## Required fields
 
@@ -20,7 +20,7 @@ The root must be an object, not an array of questions or projects.
 
 | Field | Type and constraints |
 | --- | --- |
-| `schema_version` | The string `"1.2"`, not the number `1.2`. |
+| `schema_version` | The string `"1.3"`, not the number `1.3`. |
 | `project_id` | A UUID string, not a project name or business identifier. |
 | `project_name` | String, maximum 200. |
 | `annotator` | Object containing `id` and `name`, both strings, maximum 200 each. Either may be empty. This `id` does not need to be a UUID. |
@@ -49,7 +49,8 @@ The frontend also accepts full YouTube short links and shorts/embed/live URLs an
 
 | Field | Type and constraints |
 | --- | --- |
-| `id` | Clip record UUID. Put business identifiers such as `R3-I08` in `note` or `tags`. |
+| `id` | Clip record UUID, not a business identifier. |
+| `ref_id` | Your own reference ID for the clip, such as `R3-I08`, or `""` when there is none. String, maximum 100, one line; surrounding spaces are removed on import. Shown in the library, clip table and question panel, and searchable. Duplicates are allowed but flagged when saving in the app. |
 | `start_seconds`, `end_seconds` | Numeric seconds measured from the beginning of the **original YouTube video**. Clock strings such as `"00:46"` are not accepted here. |
 | `annotator` | Same object structure as the project annotator; records who created the clip. Both fields are required. |
 | `note` | String, maximum 20,000; use `""` when empty. |
@@ -122,14 +123,14 @@ Each file remains a separate project; imports are not automatically merged. A pr
 
 Files larger than 20 MB require confirmation. Insufficient browser storage may also prevent an otherwise valid import.
 
-Legacy versions `"1.0"` and `"1.1"` are accepted and migrated to 1.2. Version 1.0 gains empty question arrays and `unknown` subtitle status. Clips in 1.0/1.1 inherit the project annotator. Do not downgrade `schema_version` to bypass QA validation: 1.0 question fields are not retained, and notes are never automatically parsed into questions.
+Legacy versions `"1.0"`, `"1.1"` and `"1.2"` are accepted and migrated to 1.3; their clips get `ref_id: ""`, because notes and tags are never parsed for an ID. Version 1.0 gains empty question arrays and `unknown` subtitle status. Clips in 1.0/1.1 inherit the project annotator. Do not downgrade `schema_version` to bypass QA validation: 1.0 question fields are not retained, and notes are never automatically parsed into questions.
 
 ## Validate generated files before delivery
 
 Run the following from the `annotation-toolkit/` directory. Replace the example file argument with one or more files to check. This reads files without changing them or installing dependencies; it requires an existing Node.js runtime.
 
 ```bash
-node --input-type=module - examples/annotation-project-1.2.json <<'JS'
+node --input-type=module - examples/annotation-project-1.3.json <<'JS'
 import { readFileSync } from 'node:fs';
 import { validateProject } from './src/annotation_toolkit/static/core.js';
 
