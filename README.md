@@ -149,7 +149,7 @@ Each clip adds `subtitle_status` (`unknown`, `none`, `present`, or `masked`) and
 
 Audio cues: `speech_content`, `prosody`, `environmental_sounds`. Visual cues: `action_event`, `gesture`, `facial_expression`, `gaze`, `person_appearance`, `object_scene`. Text cues: `subtitles`, `scene_text`. These describe the author's intended evidence requirements, not a verified ablation result. Question/option text itself does not count as a Text requirement.
 
-Drafts can be incomplete. Ready requires a nonempty prompt, at least two nonempty options, one correct answer, and at least one modality. Audio-only integration (such as speech plus prosody) is valid. All question fields are required in schema 1.2. IDs must be unique across project, video, clip, question and option records. Each clip supports up to 100 questions.
+Drafts can be incomplete. Ready requires a nonempty prompt, at least two options with no blank option among them, one correct answer, and at least one modality. Audio-only integration (such as speech plus prosody) is valid. All question fields are required in schema 1.2. IDs must be unique across project, video, clip, question and option records. Each clip supports up to 100 questions.
 
 Legacy schema 1.0 imports preserve existing notes and tags, add `questions: []` and `subtitle_status: "unknown"`, and export as 1.2. Notes are never automatically interpreted as questions. Schema 1.1 imports have no per-clip annotators, so each clip is attributed to the file's project `annotator`, then exported as 1.2. Older app releases cannot import newer schemas; keep original exports if you need to return to an older release.
 
