@@ -89,6 +89,8 @@ Download only content you have permission to use. The toolkit does not import lo
 
 ## Annotation JSON schema
 
+For generated datasets, use the **[standalone import specification](SCHEMA.md)** and the **[importable example with a complete question](examples/annotation-project-1.2.json)**. The specification includes exact field limits, enum values, source-time conversion, and a command that runs the app's actual import validator. Research catalogs and flat QA arrays require conversion before import.
+
 The current format is **schema `1.2`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.3.0`. The English interface accepts Unicode text in names, notes, and tags.
 
 ### Project fields
@@ -140,7 +142,7 @@ Each clip adds `subtitle_status` (`unknown`, `none`, `present`, or `masked`) and
 | `options` | array | Up to 26 objects with stable UUID `id` and string `text`. Display letters are derived from order. |
 | `correct_option_id` | UUID string or `null` | References one existing option. Deleting that option clears the answer. |
 | `required_modalities` | array | Any combination of `audio`, `visual`, `text`. |
-| `evidence_cues` | array | Optional cues belonging to selected modalities; see below. |
+| `evidence_cues` | array | Required field; use `[]` when no optional cues are selected. Each cue must belong to a selected modality; see below. |
 | `rationale` | string | Why these sources are needed; may be empty. |
 | `status` | string | `draft` or `ready`; Ready means author-complete, not peer-reviewed. |
 | `created_at`, `updated_at` | timestamp strings | Question creation and modification times. |
@@ -248,7 +250,13 @@ uv run python scripts/build_pages.py
 
 Node.js is needed for the frontend tests, not for annotation itself. The frontend uses plain HTML, CSS, and JavaScript without a JavaScript bundler. `scripts/build_pages.py` prepares the static demo in `dist/pages`.
 
-To publish the demo, run:
+### Change review and release approval
+
+Submit changes through a pull request before merging or publishing. Do not push changes directly to `main` or `gh-pages` as a shortcut around review.
+
+Creating a PR does not authorize merging or deployment. Obtain the project owner's explicit approval for the specific PR or revision before merging it or updating the live demo. Approval for an earlier change does not carry over to later fixes or follow-up requests; a request to adjust the app authorizes preparing the change for review, not publishing it.
+
+After the project owner explicitly approves publishing the reviewed change, run:
 
 ```bash
 uv run python scripts/publish_pages.py
