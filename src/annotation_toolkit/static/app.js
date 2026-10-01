@@ -51,6 +51,7 @@ function setSidebarCollapsed(collapsed, persist = true) {
   const label = sidebarCollapsed ? "Expand video library" : "Collapse video library";
   toggle.setAttribute("aria-label", label);
   toggle.title = label;
+  resizeQAFields();
   if (persist) {
     // Optional layout preferences must not affect project autosave or backups.
     try { localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed)); } catch { /* Keep the layout usable without storage. */ }
