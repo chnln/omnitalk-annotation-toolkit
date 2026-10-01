@@ -1,6 +1,6 @@
 /** Pure annotation data helpers. No network, storage, or DOM access. */
-export const SCHEMA_VERSION = "1.2";
-const LEGACY_VERSIONS = ["1.0", "1.1"];
+export const SCHEMA_VERSION = "1.3";
+const LEGACY_VERSIONS = ["1.0", "1.1", "1.2"];
 export const STORAGE_KEY = "omnitalk.annotation.project.v1";
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
@@ -114,12 +114,19 @@ function tags(value) {
   return value.map((tag) => text(tag, "Tag", 100, false));
 }
 
-function clipFields({ start_seconds, end_seconds, note = "", tags: clipTags = [] }, duration) {
+/** Optional external reference such as "R4-C06": one line, surrounding spaces removed, "" when absent. */
+function refId(value) {
+  const ref = text(value, "Reference ID", 100).trim();
+  if (/[\r\n]/.test(ref)) throw new Error("Reference ID must be a single line.");
+  return ref;
+}
+
+function clipFields({ ref_id = "", start_seconds, end_seconds, note = "", tags: clipTags = [] }, duration) {
   const start = seconds(start_seconds, "Clip start");
   const end = seconds(end_seconds, "Clip end");
   if (end <= start) throw new Error("The clip must end at least 1 millisecond after its start.");
   if (duration !== null && end > seconds(duration, "Video duration")) throw new Error("The clip end cannot exceed the video duration.");
-  return { start_seconds: start, end_seconds: end, note: text(note, "Note", 20000), tags: tags(clipTags) };
+  return { ref_id: refId(ref_id), start_seconds: start, end_seconds: end, note: text(note, "Note", 20000), tags: tags(clipTags) };
 }
 
 /** Clips keep a copy of the annotator who created them; later profile edits do not rewrite authorship. */
@@ -187,7 +194,7 @@ export function validateProject(data) {
   };
   if (data.exported_at !== undefined) timestamp(data.exported_at, "Export time");
   // Before 1.2 only the project had an annotator, so it is the best available author for older clips.
-  const legacyAuthor = data.schema_version === SCHEMA_VERSION ? null : project.annotator;
+  const legacyAuthor = ["1.0", "1.1"].includes(data.schema_version) ? project.annotator : null;
   let totalClips = 0;
   project.videos = data.videos.map((video) => {
     object(video, "Video");
@@ -210,9 +217,11 @@ export function validateProject(data) {
       clips: video.clips.map((clip) => {
         object(clip, "Clip");
         if (clip.note === undefined || clip.tags === undefined) throw new Error("Each clip must contain note text and a tags array.");
+        // Reference IDs arrived in 1.3; older clips have none, and notes are never parsed for one.
+        if (data.schema_version === SCHEMA_VERSION && clip.ref_id === undefined) throw new Error('Each clip must contain ref_id text; use "" when there is none.');
         return {
           id: recordId(clip.id, "Clip ID"),
-          ...clipFields(clip, duration),
+          ...clipFields({ ...clip, ref_id: data.schema_version === SCHEMA_VERSION ? clip.ref_id : "" }, duration),
           annotator: legacyAuthor ? annotatorCopy(legacyAuthor) : annotatorRecord(clip.annotator, "Clip annotator"),
           ...validateClipQA(clip, data.schema_version, recordId),
           created_at: timestamp(clip.created_at, "Clip creation time"),
@@ -296,11 +305,24 @@ export const QUESTION_STATUS_FILTERS = {
   "no-clips": "No clips yet",
 };
 
-/** Keep videos matching every active filter: title/ID text, annotator key, and question status. */
+/** Distinct nonempty clip reference IDs of a video, in clip time order. */
+export function videoRefIds(video) {
+  const clips = [...video.clips].sort((a, b) => a.start_seconds - b.start_seconds || a.end_seconds - b.end_seconds);
+  return [...new Set(clips.map((clip) => clip.ref_id).filter(Boolean))];
+}
+
+/** Other clips in the project already using this reference ID (case-insensitive). */
+export function refIdConflicts(videos, ref, exceptClipId = null) {
+  const needle = ref.trim().toLocaleLowerCase();
+  if (!needle) return [];
+  return videos.flatMap((video) => video.clips).filter((clip) => clip.id !== exceptClipId && clip.ref_id.toLocaleLowerCase() === needle);
+}
+
+/** Keep videos matching every active filter: title/YouTube ID/reference ID text, annotator key, and question status. */
 export function filterVideos(videos, { query = "", annotator = "", status = "" } = {}) {
   const needle = query.trim().toLocaleLowerCase();
   return videos.filter((video) => {
-    if (needle && !`${video.title} ${video.video_id}`.toLocaleLowerCase().includes(needle)) return false;
+    if (needle && !`${video.title} ${video.video_id} ${videoRefIds(video).join(" ")}`.toLocaleLowerCase().includes(needle)) return false;
     if (annotator && !video.clips.some((clip) => annotatorKey(clip.annotator) === annotator)) return false;
     const questions = video.clips.flatMap((clip) => clip.questions);
     if (status === "has-drafts") return questions.some((q) => q.status === "draft");
