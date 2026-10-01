@@ -452,6 +452,9 @@ function renderCurrentVideo() {
   $("clip-fields").disabled = !video;
   $("video-title").disabled = !video;
   $("video-title").value = video?.title ?? "";
+  $("video-copy-actions").hidden = !video;
+  $("copy-video-id").textContent = video?.video_id ?? "Copy ID";
+  $("copy-video-id").setAttribute("aria-label", video ? `Copy YouTube ID: ${video.video_id}` : "Copy YouTube ID");
   $("source-link").hidden = !video;
   if (video) $("source-link").href = video.url;
   $("video-empty").hidden = !!video;
@@ -1193,7 +1196,13 @@ $("recover-storage").addEventListener("click", () => downloadJson(recoveryText, 
 for (const id of ["close-export", "done-export"]) $(id).addEventListener("click", () => $("export-dialog").close());
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); showToast("Copied to clipboard"); }
-  catch { showToast("Clipboard access is unavailable. Select and copy the saved path manually.", true); }
+  catch { showToast("Clipboard access is unavailable. Select and copy the text manually.", true); }
+}
+for (const field of ["title", "url", "id"]) {
+  $(`copy-video-${field}`).addEventListener("click", () => {
+    const video = currentVideo();
+    if (video) return copyText(video[field === "id" ? "video_id" : field]);
+  });
 }
 $("copy-export-path").addEventListener("click", () => { if (latestExport?.path) copyText(latestExport.path); });
 $("copy-export-json").addEventListener("click", () => { if (latestExport) copyText(latestExport.content); });
