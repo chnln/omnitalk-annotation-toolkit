@@ -91,7 +91,7 @@ Download only content you have permission to use. The toolkit does not import lo
 
 For generated datasets, use the **[standalone import specification](SCHEMA.md)** and the **[importable example with a complete question](examples/annotation-project-1.3.json)**. The specification includes exact field limits, enum values, source-time conversion, and a command that runs the app's actual import validator. Research catalogs and flat QA arrays require conversion before import.
 
-The current format is **schema `1.3`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.3.0`. The English interface accepts Unicode text in names, notes, and tags.
+The current format is **schema `1.3`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.3.0`. Version 1.3 adds an optional per-clip `ref_id`; releases up to `v0.3.0` cannot import 1.3 files. See [schema versions](SCHEMA.md#schema-versions) for each version's changes and how older files migrate. The English interface accepts Unicode text in names, notes, and tags.
 
 ### Project fields
 

@@ -125,6 +125,28 @@ Files larger than 20 MB require confirmation. Insufficient browser storage may a
 
 Legacy versions `"1.0"`, `"1.1"` and `"1.2"` are accepted and migrated to 1.3; their clips get `ref_id: ""`, because notes and tags are never parsed for an ID. Version 1.0 gains empty question arrays and `unknown` subtitle status. Clips in 1.0/1.1 inherit the project annotator. Do not downgrade `schema_version` to bypass QA validation: 1.0 question fields are not retained, and notes are never automatically parsed into questions.
 
+## Schema versions
+
+| Version | Change | Import into the current app |
+| --- | --- | --- |
+| `1.0` | Projects, videos and clips with notes and tags. | Clips gain `subtitle_status: "unknown"`, `questions: []`, the project annotator and `ref_id: ""`. Notes are not parsed into questions. |
+| `1.1` | Clip `subtitle_status` and `questions`. | Clips gain the project annotator and `ref_id: ""`. |
+| `1.2` | Per-clip `annotator`. | Clips gain `ref_id: ""`. |
+| `1.3` | Per-clip `ref_id`. | Current version; imported as is. |
+
+Every import is re-exported as the current version. Releases up to and including `v0.3.0` read at most `1.2` and reject `1.3` files with "Unsupported file version". The current app cannot write `1.2`, so keep the original `1.2` file if someone still uses an older release or a demo that has not been updated.
+
+### `ref_id` in 1.3
+
+`ref_id` holds an identifier from your own catalog or review records, such as `R4-C06`. It lets reviewers find a clip by the same ID used in notes, spreadsheets and discussion. The app shows it in the video library, the clip table and the question panel, and both library and clip search match it. Clips with `""` look as they did in 1.2.
+
+- It belongs to the **clip**, not the video. A video with several referenced clips is listed as, for example, `R5-14 +2`.
+- It is not a record UUID and does not replace `id`. Record UUIDs stay the keys for import, deduplication and answer references.
+- Uniqueness is not enforced. The app warns when a saved clip reuses an ID already present in the project. Generators should still emit unique IDs.
+- Import does not read IDs from `note` or `tags`. Text such as `Clip ID: R4-C06` may remain there for human readers, but only `ref_id` is displayed and searched as the reference ID.
+
+To upgrade a 1.2 generator, set `schema_version` to `"1.3"` and add `ref_id` to every clip: the business ID when one exists, otherwise `""`. Keep the source catalog's ID column as the origin of the value, rather than extracting it from free text.
+
 ## Validate generated files before delivery
 
 Run the following from the `annotation-toolkit/` directory. Replace the example file argument with one or more files to check. This reads files without changing them or installing dependencies; it requires an existing Node.js runtime.
@@ -163,3 +185,7 @@ Before declaring a file importable, verify that it parses, passes this actual im
 | `Correct answer must reference an existing option.` | An answer letter may remain, or the UUID may refer to another question's option. |
 | `The file contains duplicate project, video, or clip IDs.` | Check all record UUIDs, including questions and options. |
 | `The clip end cannot exceed the video duration.` | A clip duration may have been used as the source duration, or a time offset may have been added twice. |
+| `Each clip must contain ref_id text; use "" when there is none.` | A 1.3 clip has no `ref_id` field. Add `"ref_id": ""` for clips without an ID. |
+| `Reference ID must be text with at most 100 characters.` | `ref_id` is `null`, a number, or longer than 100 characters. |
+| `Reference ID must be a single line.` | The ID contains a line break. |
+| `Unsupported file version.` | An older app release cannot read `1.3`; update the app, or import the original `1.2` file into that release. |
