@@ -66,3 +66,20 @@
 }
 
 .project-picker{display:flex;align-items:center;gap:4px;margin:0 4px 8px}.project-picker select{flex:1;min-width:0;font-size:12px;color:#56616d;background:white;border:1px solid #e7ebed;border-radius:6px;padding:7px 8px}.project-picker[hidden]{display:none}
+
+/* Scroll long libraries independently so choosing a video keeps the player in view. */
+@media(min-width:721px) {
+  .video-list {
+    max-height:clamp(100px,calc(100dvh - 540px),520px);
+    overflow-y:auto;
+    overscroll-behavior-y:contain;
+    scrollbar-gutter:stable;
+    padding:4px;
+    margin:-4px;
+  }
+  .video-list > * { flex-shrink:0; }
+  .video-list::-webkit-scrollbar { width:8px; }
+  .video-list::-webkit-scrollbar-track { background:#edf2ef; border-radius:4px; }
+  .video-list::-webkit-scrollbar-thumb { background:#9bb4a9; border-radius:4px; }
+  .video-list::-webkit-scrollbar-thumb:hover { background:#738c80; }
+}
