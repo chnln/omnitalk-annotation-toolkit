@@ -103,7 +103,7 @@ Subtitle statuses describe the media:
 
 Use the exact enum strings, including the plural in `environmental_sounds`. For example, `gaze` requires `visual` in `required_modalities`. Visible subtitles do not automatically make `text` a required modality. Question and option text themselves do not count as a Text requirement. These labels describe the author's evidence judgment; they do not establish an ablation result.
 
-A Draft may have an empty prompt, no options, a `null` answer, and no modalities. All fields are still required, and existing values must satisfy type, enum, uniqueness, and reference constraints. Ready requires a non-whitespace prompt, at least two non-whitespace options, a selected correct answer, and at least one modality. Ready means author-complete, not independently reviewed or human gold. Audio-only questions are allowed.
+A Draft may have an empty prompt, no options, a `null` answer, and no modalities. All fields are still required, and existing values must satisfy type, enum, uniqueness, and reference constraints. Ready requires a non-whitespace prompt, at least two options with every option containing non-whitespace text (remove unused blank options rather than leaving them empty), a selected correct answer, and at least one modality. Ready means author-complete, not independently reviewed or human gold. Audio-only questions are allowed.
 
 Display letters are derived from option order. When converting `{ "A": "...", "B": "..." }`, preserve the intended order, create one UUID per option, and translate the answer letter into the corresponding UUID. Reordering options must not change the UUID referenced by the answer.
 
