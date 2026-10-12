@@ -2,6 +2,7 @@ import {
   STORAGE_KEY, LIMITS, createProject, createVideo, createClip, createQuestion, questionReadyError, MODALITIES,
   parseYouTubeUrl, parseTime, formatTime, validateProject,
   projectAnnotators, filterVideos, QUESTION_STATUS_FILTERS, videoRefIds, refIdConflicts,
+  createEvidence, cueModality, formatAnnotation, spansOutside,
 } from "./core.js";
 import { initDownloads } from "./downloads.js";
 
@@ -38,6 +39,7 @@ let recoveryText = null;
 let downloadUI = null;
 let latestExport = null;
 let sidebarCollapsed = false;
+let annotationClipTime = false; // view preference for "Copy as text": source-video time or clip time
 // Library filters are a view preference only; they never change or hide saved annotations.
 const libraryFilter = { query: "", annotator: "", status: "" };
 const storedValues = new Map();
@@ -810,6 +812,8 @@ function saveClip(event) {
     if (existing < 0 && (video.clips.length >= LIMITS.clipsPerVideo || project.videos.reduce((sum, item) => sum + item.clips.length, 0) >= LIMITS.totalClips)) {
       throw new Error("This batch has reached the clip limit. Export it before starting another batch.");
     }
+    const outside = existing >= 0 ? spansOutside(video.clips[existing], clip.start_seconds, clip.end_seconds) : 0;
+    if (outside) throw new Error(`${outside} evidence ${outside === 1 ? "span lies" : "spans lie"} outside the new range. Adjust the question evidence first, or keep the clip boundaries.`);
     // Editing keeps the original author; attribution records who created the clip.
     if (existing >= 0) video.clips[existing] = { ...video.clips[existing], ...clip, annotator: video.clips[existing].annotator, questions: video.clips[existing].questions, subtitle_status: video.clips[existing].subtitle_status, id: editingId, created_at: video.clips[existing].created_at };
     else video.clips.push(clip);
@@ -1096,6 +1100,107 @@ function renderQA() {
   $("qa-subtitles").value = clip.subtitle_status;
   renderQAEditor(); renderQAList();
 }
+/** Selecting a cue for an evidence line also selects it (and its modality) for the question. */
+function ensureCue(q, cue) {
+  const modality = cueModality(cue);
+  if (!q.required_modalities.includes(modality)) q.required_modalities = [...q.required_modalities, modality];
+  if (!q.evidence_cues.includes(cue)) q.evidence_cues = [...q.evidence_cues, cue];
+}
+/** A short span at the playhead when it is inside the clip; otherwise none. */
+function playheadSpan(clip) {
+  const now = playerReady ? player.getCurrentTime?.() : NaN;
+  if (!Number.isFinite(now) || now < clip.start_seconds || now >= clip.end_seconds) return null;
+  const start = Math.round(now * 1000) / 1000;
+  return { start_seconds: start, end_seconds: Math.min(clip.end_seconds, start + 2) };
+}
+function renderEvidenceEditor(q, clip) {
+  const box = el("div", "qa-evidence-editor");
+  const heading = el("div", "qa-section-heading");
+  const add = qaButton("+ Add evidence", () => {
+    const cue = q.evidence_cues[0] || "speech_content";
+    ensureCue(q, cue);
+    q.annotations.push(createEvidence(cue, playheadSpan(clip)));
+    qaSave(q); renderQAEditor();
+  }, "text-button");
+  add.disabled = q.annotations.length >= LIMITS.evidencePerQuestion;
+  heading.append(el("strong", "", "Annotation · evidence with time spans"), add);
+  box.append(heading, el("p", "qa-help", "One line per piece of evidence needed for the answer: what is said or seen, when, and for non-speech evidence its function in the communication. Times are in the original video; spans may be non-contiguous."));
+  const cueOptions = Object.entries(MODALITIES).flatMap(([, group]) => Object.entries(group.cues).map(([cue, label]) => [cue, `${group.label} · ${label}`]));
+  for (const [i, e] of q.annotations.entries()) {
+    const card = el("div", "qa-evidence");
+    const error = el("p", "field-error"); error.setAttribute("role", "alert"); error.hidden = true;
+    const fail = (message) => { error.textContent = message; error.hidden = false; };
+    const top = el("div", "qa-evidence-top");
+    const select = el("select"); select.setAttribute("aria-label", `Evidence ${i + 1} cue`);
+    for (const [cue, label] of cueOptions) { const o = el("option", "", label); o.value = cue; select.append(o); }
+    select.value = e.cue;
+    select.addEventListener("change", () => { e.cue = select.value; ensureCue(q, e.cue); qaSave(q); renderQAEditor(); });
+    const remove = qaButton("×", () => { q.annotations = q.annotations.filter(item => item.id !== e.id); qaSave(q); renderQAEditor(); }, "qa-remove");
+    remove.setAttribute("aria-label", `Remove evidence ${i + 1}`);
+    top.append(el("span", "qa-evidence-number", String(i + 1)), select, remove);
+    const content = el("textarea"); content.rows = 1; content.maxLength = 5000; content.value = e.content;
+    content.placeholder = e.cue === "speech_content" ? "Who says what, e.g. Woman in red: “Is that sugar?”" : "What is seen or heard";
+    content.setAttribute("aria-label", `Evidence ${i + 1} content`);
+    content.addEventListener("input", () => { resizeQATextarea(content); e.content = content.value; qaSave(q); });
+    card.append(top, content);
+    for (const [j, span] of e.spans.entries()) {
+      const row = el("div", "qa-span");
+      const setSpan = (key, value) => {
+        const next = { ...span, [key]: value };
+        if (next.end_seconds <= next.start_seconds) return fail("A span must end after it starts.");
+        if (next.start_seconds < clip.start_seconds || next.end_seconds > clip.end_seconds) return fail(`Spans must lie within the clip (${clock(clip.start_seconds)} – ${clock(clip.end_seconds)}).`);
+        span[key] = value; qaSave(q); renderQAEditor();
+      };
+      const inputs = ["start_seconds", "end_seconds"].map((key) => {
+        const input = el("input", "time-input qa-span-time"); input.value = clock(span[key]);
+        input.setAttribute("aria-label", `Evidence ${i + 1} span ${j + 1} ${key === "start_seconds" ? "start" : "end"}`);
+        input.addEventListener("change", () => {
+          let value;
+          try { value = parseTime(input.value); } catch (err) { return fail(err.message); }
+          setSpan(key, value);
+        });
+        return input;
+      });
+      const capture = (key) => qaButton(key === "start_seconds" ? "Start = now" : "End = now", () => {
+        const now = playerReady ? player.getCurrentTime?.() : NaN;
+        if (!Number.isFinite(now)) return fail("The player is not ready. Type the time instead.");
+        setSpan(key, Math.round(now * 1000) / 1000);
+      }, "capture-button");
+      const play = actionButton(`Play evidence ${i + 1} span ${j + 1}`, "play", () => previewInterval(span.start_seconds, span.end_seconds));
+      play.disabled = !playerReady;
+      const drop = qaButton("×", () => { e.spans.splice(j, 1); qaSave(q); renderQAEditor(); }, "qa-remove");
+      drop.setAttribute("aria-label", `Remove evidence ${i + 1} span ${j + 1}`);
+      const rel = el("span", "qa-span-relative", `clip ${formatTime(span.start_seconds - clip.start_seconds)}–${formatTime(span.end_seconds - clip.start_seconds)}`);
+      row.append(play, inputs[0], capture("start_seconds"), el("span", "qa-span-dash", "→"), inputs[1], capture("end_seconds"), rel, drop);
+      card.append(row);
+    }
+    const addSpan = qaButton("+ Add time span", () => {
+      e.spans.push(playheadSpan(clip) ?? { start_seconds: clip.start_seconds, end_seconds: clip.end_seconds });
+      qaSave(q); renderQAEditor();
+    }, "text-button");
+    addSpan.disabled = e.spans.length >= LIMITS.spansPerEvidence;
+    card.append(addSpan);
+    if (e.cue !== "speech_content" || e.function) {
+      const fn = el("textarea"); fn.rows = 1; fn.maxLength = 2000; fn.value = e.function;
+      fn.placeholder = "Function in the communication, e.g. identifies who “this one” refers to";
+      fn.setAttribute("aria-label", `Evidence ${i + 1} function`);
+      fn.addEventListener("input", () => { resizeQATextarea(fn); e.function = fn.value; qaSave(q); });
+      card.append(fn);
+    }
+    card.append(error);
+    box.append(card);
+  }
+  if (q.annotations.length) {
+    const tools = el("div", "qa-evidence-tools");
+    const base = el("select"); base.setAttribute("aria-label", "Time base for copied annotation");
+    for (const [value, label] of [["source", "Original video time"], ["clip", "Clip time (00:00 = clip start)"]]) { const o = el("option", "", label); o.value = value; base.append(o); }
+    base.value = annotationClipTime ? "clip" : "source";
+    base.addEventListener("change", () => { annotationClipTime = base.value === "clip"; });
+    tools.append(qaButton("Copy as team text", () => copyText(formatAnnotation(q, clip, { clipTime: annotationClipTime }))), base);
+    box.append(tools);
+  }
+  return box;
+}
 function renderQAEditor() {
   const clip = qaClip();
   const host = $("qa-editor"); host.replaceChildren();
@@ -1136,6 +1241,7 @@ function renderQAEditor() {
   for (const [key, group] of Object.entries(MODALITIES)) {
     const selected = q.required_modalities.includes(key);
     const button = qaButton(group.label, () => {
+      if (selected && q.annotations.some(e => cueModality(e.cue) === key)) return showToast(`${group.label} is used by an evidence line below. Change or remove that line first.`, true);
       q.required_modalities = selected ? q.required_modalities.filter(m => m !== key) : [...q.required_modalities, key];
       if (selected) q.evidence_cues = q.evidence_cues.filter(c => !Object.hasOwn(group.cues, c));
       qaSave(q); renderQAEditor();
@@ -1147,12 +1253,16 @@ function renderQAEditor() {
     const cues = el("div", "qa-chips");
     for (const [cue, label] of Object.entries(group.cues)) {
       const selected = q.evidence_cues.includes(cue);
-      const button = qaButton(label, () => { q.evidence_cues = selected ? q.evidence_cues.filter(c => c !== cue) : [...q.evidence_cues, cue]; qaSave(q); renderQAEditor(); }, "qa-chip small");
+      const button = qaButton(label, () => {
+        if (selected && q.annotations.some(e => e.cue === cue)) return showToast(`${label} is used by an evidence line below. Change or remove that line first.`, true);
+        q.evidence_cues = selected ? q.evidence_cues.filter(c => c !== cue) : [...q.evidence_cues, cue]; qaSave(q); renderQAEditor();
+      }, "qa-chip small");
       button.setAttribute("aria-pressed", String(selected)); cues.append(button);
     }
     evidence.append(cues);
   }
   if (q.required_modalities.includes("text")) evidence.append(el("p", "qa-help", "Subtitles are a requirement only if the answer needs them. Scene text includes signs, notes and phone screens."));
+  evidence.append(renderEvidenceEditor(q, clip));
   evidence.append(field("Why are these needed? · Optional", "rationale", 20000, 2));
   const error = el("p", "field-error"); error.setAttribute("role", "alert");
   const footer = el("div", "qa-editor-footer");

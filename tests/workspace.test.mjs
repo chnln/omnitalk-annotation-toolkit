@@ -91,6 +91,7 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
   const refreshes = [];
   const downloadOpens = [];
   const exports = [];
+  const clipboard = [];
   const blobs = new Map();
   let now = Date.now();
   let timerId = 0;
@@ -111,6 +112,7 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
     ...core, document, window, URL: BrowserURL, URLSearchParams, Blob, console, AbortSignal,
     Date: class extends Date { static now() { return now; } },
     location: { origin: "http://127.0.0.1:8765" },
+    navigator: { clipboard: { writeText: async (text) => { clipboard.push(text); } } },
     localStorage: {
       getItem: (key) => { if (failSidebarStorage && key === sidebarStorageKey) throw new Error("Preference storage unavailable"); return storage.get(key) ?? null; },
       setItem: (key, value) => { if (failSidebarStorage && key === sidebarStorageKey) throw new Error("Preference storage unavailable"); beforeSetItem?.(key, value, storage); storage.set(key, value); },
@@ -167,7 +169,7 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
   function fill(start, end, note, tags = "", ref = "") {
     for (const [id, value] of Object.entries({ "clip-ref": ref, "clip-start": start, "clip-end": end, "clip-note": note, "clip-tags": tags })) node(id).value = value;
   }
-  return { api, node, storage, instances, refreshes, downloadOpens, exports, blobs, libraryItem, deleteButton, confirm, flush, resolveAPI, fill, window, document, advanceTime: (milliseconds) => { now += milliseconds; } };
+  return { api, node, storage, instances, refreshes, downloadOpens, exports, clipboard, blobs, libraryItem, deleteButton, confirm, flush, resolveAPI, fill, window, document, advanceTime: (milliseconds) => { now += milliseconds; } };
 }
 
 test("library clicks preserve distinct saved clips and unfinished per-video drafts before YouTube loads", async () => {
@@ -694,7 +696,7 @@ test("clips record their annotator, keep it across edits and profile changes, an
   assert.equal(w.node("clips-body").children[0].children.length, 5, "the clips table has no annotator column");
   await w.api.exportProject();
   const exported = core.validateProject(w.exports[0]);
-  assert.equal(exported.schema_version, "1.3");
+  assert.equal(exported.schema_version, "1.4");
   assert.equal(exported.videos[0].clips[0].annotator.name, "Nan");
 });
 
@@ -927,4 +929,71 @@ test("reference IDs are entered with the clip, shown in the library, clip table,
   assert.equal(video().clips[0].ref_id, "R4-C07");
   await w.api.exportProject();
   assert.equal(w.exports[0].videos[0].clips[0].ref_id, "R4-C07");
+});
+
+test("evidence lines take a cue, content, playhead or typed spans, guard their cues and clip range, and gate Ready", async () => {
+  const w = workspace();
+  w.api.addVideo("M7lc1UVf-VE"); w.resolveAPI(); await w.flush(); w.instances.at(-1).ready();
+  w.fill("10", "40", "clip"); w.api.saveClip();
+  await w.node("qa-add").click();
+  const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
+  const all = () => descendants(w.node("qa-editor"));
+  const labelled = (label) => all().find((n) => n.attributes["aria-label"] === label);
+  const button = (text) => all().find((n) => n.tagName === "BUTTON" && n.textContent === text);
+  const q = () => w.api.state().project.videos[0].clips[0].questions[0];
+  const plain = (value) => JSON.parse(JSON.stringify(value)); // arrays built inside the app belong to another realm
+  Object.assign(q(), { prompt: "What does “that” refer to?" });
+  q().options.forEach((o, i) => { o.text = `Option ${i}`; }); q().correct_option_id = q().options[0].id;
+
+  w.instances.at(-1).time = 12.3456;
+  await button("+ Add evidence").click();
+  assert.equal(q().annotations.length, 1);
+  assert.deepEqual(plain(q().annotations[0].spans), [{ start_seconds: 12.346, end_seconds: 14.346 }], "a new line starts at the playhead");
+  assert.deepEqual(plain([q().required_modalities, q().evidence_cues]), [["audio"], ["speech_content"]], "its cue and modality are selected");
+
+  labelled("Evidence 1 cue").value = "gesture"; await labelled("Evidence 1 cue").fire("change");
+  assert.deepEqual(plain([q().required_modalities, q().evidence_cues]), [["audio", "visual"], ["speech_content", "gesture"]]);
+  await button("Visual").click();
+  assert.deepEqual(plain(q().required_modalities), ["audio", "visual"], "a modality used by evidence cannot be deselected");
+  assert.equal(w.node("toast").hidden, false);
+  await button("Gesture").click();
+  assert.ok(q().evidence_cues.includes("gesture"), "a cue used by evidence cannot be deselected");
+
+  await button("Mark Ready").click();
+  assert.equal(q().status, "draft", "evidence without content blocks Ready");
+  assert.match(all().find((n) => n.attributes.role === "alert" && n.className === "field-error" && n.textContent).textContent, /evidence line needs content/);
+  labelled("Evidence 1 content").value = "Man points at the jar"; await labelled("Evidence 1 content").fire("input");
+  labelled("Evidence 1 function").value = "identifies the referent"; await labelled("Evidence 1 function").fire("input");
+
+  labelled("Evidence 1 span 1 end").value = "00:05"; await labelled("Evidence 1 span 1 end").fire("change");
+  assert.equal(q().annotations[0].spans[0].end_seconds, 14.346, "an end before the start is refused");
+  labelled("Evidence 1 span 1 end").value = "00:41"; await labelled("Evidence 1 span 1 end").fire("change");
+  assert.equal(q().annotations[0].spans[0].end_seconds, 14.346, "a span outside the clip is refused");
+  w.instances.at(-1).time = 20;
+  await button("End = now").click();
+  assert.equal(q().annotations[0].spans[0].end_seconds, 20);
+  await button("+ Add time span").click();
+  labelled("Evidence 1 span 2 end").value = "00:32.5"; await labelled("Evidence 1 span 2 end").fire("change");
+  labelled("Evidence 1 span 2 start").value = "00:30"; await labelled("Evidence 1 span 2 start").fire("change");
+  assert.deepEqual(plain(q().annotations[0].spans[1]), { start_seconds: 30, end_seconds: 32.5 });
+
+  await button("Mark Ready").click();
+  assert.equal(q().status, "ready");
+  labelled("Time base for copied annotation").value = "clip"; await labelled("Time base for copied annotation").fire("change");
+  await button("Copy as team text").click();
+  assert.equal(w.clipboard[0], "Annotation:\n(gesture): Man points at the jar [time_span: 00:02 ~ 00:10] & [time_span: 00:20 ~ 00:23]\nFunction of non-speech content to communication:\n(gesture) identifies the referent");
+
+  const clip = w.api.state().project.videos[0].clips[0];
+  await w.api.editClip(clip); w.fill("15", "40", "clip"); w.api.saveClip();
+  assert.equal(clip.start_seconds, 10, "a clip edit that would strand evidence spans is refused");
+  assert.match(w.node("clip-error").textContent, /1 evidence span lies outside/);
+  w.fill("10", "35", "trimmed"); w.api.saveClip();
+  assert.equal(w.api.state().project.videos[0].clips[0].end_seconds, 35);
+
+  await w.api.exportProject();
+  const exported = core.validateProject(w.exports[0]);
+  assert.equal(exported.schema_version, "1.4");
+  assert.equal(exported.videos[0].clips[0].questions[0].annotations[0].function, "identifies the referent");
+  await labelled("Remove evidence 1").click();
+  assert.deepEqual(plain(q().annotations), []);
 });
