@@ -1,4 +1,4 @@
-# Annotation JSON import specification (schema 1.3)
+# Annotation JSON import specification (schema 1.4)
 
 Use this specification when generating annotations with scripts, models, or manual editing. An import file contains **one project**, with the hierarchy **project → videos → clips → questions → options**. Research catalogs and flat QA arrays require conversion before import.
 
@@ -6,7 +6,7 @@ The executable source of truth is [core.js](src/annotation_toolkit/static/core.j
 
 ## Importable example
 
-[examples/annotation-project-1.3.json](examples/annotation-project-1.3.json) contains one project, one YouTube video, one clip, and one Draft question with two options. It demonstrates structure; its question and answer are illustrative and have not been verified against the video. For a new project, generate fresh record UUIDs and replace the source, interval, and annotation content.
+[examples/annotation-project-1.4.json](examples/annotation-project-1.4.json) contains one project, one YouTube video, one clip, and one Draft question with two options and two evidence lines. It demonstrates structure; its question and answer are illustrative and have not been verified against the video. For a new project, generate fresh record UUIDs and replace the source, interval, and annotation content.
 
 ## Required fields
 
@@ -20,7 +20,7 @@ The root must be an object, not an array of questions or projects.
 
 | Field | Type and constraints |
 | --- | --- |
-| `schema_version` | The string `"1.3"`, not the number `1.3`. |
+| `schema_version` | The string `"1.4"`, not the number `1.4`. |
 | `project_id` | A UUID string, not a project name or business identifier. |
 | `project_name` | String, maximum 200. |
 | `annotator` | Object containing `id` and `name`, both strings, maximum 200 each. Either may be empty. This `id` does not need to be a UUID. |
@@ -91,25 +91,54 @@ Subtitle statuses describe the media:
 | `correct_option_id` | The UUID of an option in **this question**, or `null` when no answer is selected. An answer letter, numeric index, or answer text is not accepted. |
 | `required_modalities` | Array selecting from `audio`, `visual`, `text`; no duplicates. |
 | `evidence_cues` | Array selecting from the table below; no duplicates. Every cue's parent modality must also be selected. Use `[]` when no specific cues are selected. |
+| `annotations` | Array of at most 50 evidence objects (see [Evidence](#evidence-videosclipsquestionsannotations)); use `[]` when there are none. |
 | `rationale` | Explanation string, maximum 20,000; use `""` when empty. |
 | `status` | `"draft"` or `"ready"`. |
 | `created_at`, `updated_at` | Date-time strings with time zones. |
 
 | Parent modality | Accepted evidence cues |
 | --- | --- |
-| `audio` | `speech_content`, `prosody`, `environmental_sounds` |
+| `audio` | `speech_content`, `vocalization`, `prosody`, `environmental_sounds` |
 | `visual` | `action_event`, `gesture`, `facial_expression`, `gaze`, `person_appearance`, `object_scene` |
 | `text` | `subtitles`, `scene_text` |
 
 Use the exact enum strings, including the plural in `environmental_sounds`. For example, `gaze` requires `visual` in `required_modalities`. Visible subtitles do not automatically make `text` a required modality. Question and option text themselves do not count as a Text requirement. These labels describe the author's evidence judgment; they do not establish an ablation result.
 
-A Draft may have an empty prompt, no options, a `null` answer, and no modalities. All fields are still required, and existing values must satisfy type, enum, uniqueness, and reference constraints. Ready requires a non-whitespace prompt, at least two options with every option containing non-whitespace text (remove unused blank options rather than leaving them empty), a selected correct answer, and at least one modality. Ready means author-complete, not independently reviewed or human gold. Audio-only questions are allowed.
+A Draft may have an empty prompt, no options, a `null` answer, and no modalities. All fields are still required, and existing values must satisfy type, enum, uniqueness, and reference constraints. Ready requires a non-whitespace prompt, at least two options with every option containing non-whitespace text (remove unused blank options rather than leaving them empty), a selected correct answer, at least one modality, and non-whitespace `content` plus at least one span on every evidence object. Ready means author-complete, not independently reviewed or human gold. Audio-only questions are allowed.
 
 Display letters are derived from option order. When converting `{ "A": "...", "B": "..." }`, preserve the intended order, create one UUID per option, and translate the answer letter into the corresponding UUID. Reordering options must not change the UUID referenced by the answer.
 
+### Evidence: `videos[].clips[].questions[].annotations[]`
+
+Each evidence object is one line of the team's *Annotation* section: a piece of evidence the answer needs, where it occurs, and what it does in the communication.
+
+| Field | Type and constraints |
+| --- | --- |
+| `id` | Evidence UUID. |
+| `cue` | One cue from the table above. It must also be listed in this question's `evidence_cues` (and so its modality in `required_modalities`). |
+| `content` | What is said, heard or seen, maximum 5,000. For speech, write who says what, e.g. `Woman in red: "Is that sugar?"`. |
+| `spans` | Array of at most 20 `{ "start_seconds", "end_seconds" }` objects. Times are seconds in the **original video**, like clip boundaries, rounded to milliseconds, with `clip.start_seconds <= start_seconds < end_seconds <= clip.end_seconds`. Several spans express evidence that is not contiguous. A Draft may hold `[]`. |
+| `function` | Its communicative function, maximum 2,000, e.g. `identifies who "this one" refers to`. Usually filled for non-speech cues; `""` when empty. |
+
+`vocalization` covers non-lexical sounds a person makes (laughs, sighs, gasps, "mm-hm"); `prosody` covers how words are said; `environmental_sounds` covers sounds not made by speakers.
+
+The app's **Copy as team text** button renders the evidence in the team document format, in original-video or clip time:
+
+```text
+Annotation:
+(speech content): Woman in red: "Is that sugar?" [time_span: 01:01 ~ 01:03]
+(gesture): Man points at the jar [time_span: 01:04 ~ 01:05] & [time_span: 01:10 ~ 01:12]
+Function of non-speech content to communication:
+(gesture) identifies what "that" refers to
+```
+
+Cue names in that text are `speech content`, `vocalization`, `prosody`, `environmental sound`, `action`, `gesture`, `facial expression`, `gaze`, `human appearance`, `object/scene`, `subtitles` and `written content` (for `scene_text`).
+
+When converting spans recorded relative to a downloaded clip, add the clip's `start_seconds` before import. In the app, a clip cannot be shortened so that existing evidence spans fall outside it, and a modality or cue used by an evidence line cannot be deselected.
+
 ## Shared rules
 
-- Project, video record, clip, question, and option UUIDs must be unique across the entire file, case-insensitively. Use the standard `8-4-4-4-12` string format. UUIDv4 is suitable; UUIDv5 with a fixed namespace and unique business keys supports reproducible generation. Keep IDs stable when regenerating the same project.
+- Project, video record, clip, question, option, and evidence UUIDs must be unique across the entire file, case-insensitively. Use the standard `8-4-4-4-12` string format. UUIDv4 is suitable; UUIDv5 with a fixed namespace and unique business keys supports reproducible generation. Keep IDs stable when regenerating the same project.
 - Date-time strings must use `YYYY-MM-DDTHH:mm:ss[.sss]Z` or an explicit `±HH:mm` offset. Fractional seconds are optional and may have up to three digits. Prefer `2026-10-01T00:00:00.000Z`. Time-zone-free dates and invalid calendar dates are rejected.
 - Do not substitute `null` for required strings or arrays. Use empty strings/arrays only where permitted.
 - The frontend discards unrecognized fields. Preserve needed business IDs, source observations, and ablation explanations in supported `note`, `tags`, and `rationale` fields, and retain the original research data separately.
@@ -123,7 +152,7 @@ Each file remains a separate project; imports are not automatically merged. A pr
 
 Files larger than 20 MB require confirmation. Insufficient browser storage may also prevent an otherwise valid import.
 
-Legacy versions `"1.0"`, `"1.1"` and `"1.2"` are accepted and migrated to 1.3; their clips get `ref_id: ""`, because notes and tags are never parsed for an ID. Version 1.0 gains empty question arrays and `unknown` subtitle status. Clips in 1.0/1.1 inherit the project annotator. Do not downgrade `schema_version` to bypass QA validation: 1.0 question fields are not retained, and notes are never automatically parsed into questions.
+Legacy versions `"1.0"` to `"1.3"` are accepted and migrated to 1.4: questions get `annotations: []` (any `annotations` field in an older file is ignored), and clips from before 1.3 get `ref_id: ""`, because notes and tags are never parsed for an ID. Version 1.0 gains empty question arrays and `unknown` subtitle status. Clips in 1.0/1.1 inherit the project annotator. Do not downgrade `schema_version` to bypass QA validation: 1.0 question fields are not retained, and notes are never automatically parsed into questions.
 
 ## Schema versions
 
@@ -131,10 +160,11 @@ Legacy versions `"1.0"`, `"1.1"` and `"1.2"` are accepted and migrated to 1.3; t
 | --- | --- | --- |
 | `1.0` | Projects, videos and clips with notes and tags. | Clips gain `subtitle_status: "unknown"`, `questions: []`, the project annotator and `ref_id: ""`. Notes are not parsed into questions. |
 | `1.1` | Clip `subtitle_status` and `questions`. | Clips gain the project annotator and `ref_id: ""`. |
-| `1.2` | Per-clip `annotator`. | Clips gain `ref_id: ""`. |
-| `1.3` | Per-clip `ref_id`. | Current version; imported as is. |
+| `1.2` | Per-clip `annotator`. | Clips gain `ref_id: ""`; questions gain `annotations: []`. |
+| `1.3` | Per-clip `ref_id`. | Questions gain `annotations: []`. |
+| `1.4` | Per-question `annotations` (evidence with time spans); new audio cue `vocalization`. | Current version; imported as is. |
 
-Every import is re-exported as the current version. Releases up to and including `v0.3.0` read at most `1.2` and reject `1.3` files with "Unsupported file version". The current app cannot write `1.2`, so keep the original `1.2` file if someone still uses an older release or a demo that has not been updated.
+Every import is re-exported as the current version. Releases up to and including `v0.3.0` read at most `1.2` and reject `1.3` files with "Unsupported file version"; releases before evidence spans reject `1.4` the same way. The current app cannot write older versions, so keep the original file if someone still uses an older release or a demo that has not been updated.
 
 ### `ref_id` in 1.3
 
@@ -145,6 +175,8 @@ Every import is re-exported as the current version. Releases up to and including
 - Uniqueness is not enforced. The app warns when a saved clip reuses an ID already present in the project. Generators should still emit unique IDs.
 - Import does not read IDs from `note` or `tags`. Text such as `Clip ID: R4-C06` may remain there for human readers, but only `ref_id` is displayed and searched as the reference ID.
 
+To upgrade a 1.3 generator to 1.4, set `schema_version` to `"1.4"` and add `"annotations": []` (or real evidence) to every question.
+
 To upgrade a 1.2 generator, set `schema_version` to `"1.3"` and add `ref_id` to every clip: the business ID when one exists, otherwise `""`. Keep the source catalog's ID column as the origin of the value, rather than extracting it from free text.
 
 ## Validate generated files before delivery
@@ -152,7 +184,7 @@ To upgrade a 1.2 generator, set `schema_version` to `"1.3"` and add `ref_id` to 
 Run the following from the `annotation-toolkit/` directory. Replace the example file argument with one or more files to check. This reads files without changing them or installing dependencies; it requires an existing Node.js runtime.
 
 ```bash
-node --input-type=module - examples/annotation-project-1.3.json <<'JS'
+node --input-type=module - examples/annotation-project-1.4.json <<'JS'
 import { readFileSync } from 'node:fs';
 import { validateProject } from './src/annotation_toolkit/static/core.js';
 
@@ -188,4 +220,8 @@ Before declaring a file importable, verify that it parses, passes this actual im
 | `Each clip must contain ref_id text; use "" when there is none.` | A 1.3 clip has no `ref_id` field. Add `"ref_id": ""` for clips without an ID. |
 | `Reference ID must be text with at most 100 characters.` | `ref_id` is `null`, a number, or longer than 100 characters. |
 | `Reference ID must be a single line.` | The ID contains a line break. |
-| `Unsupported file version.` | An older app release cannot read `1.3`; update the app, or import the original `1.2` file into that release. |
+| `Question annotations must be an array...` | A 1.4 question has no `annotations` field. Add `"annotations": []`. |
+| `Each evidence line's cue must also be selected in the question's evidence cues.` | Add the cue to `evidence_cues` and its modality to `required_modalities`. |
+| `Evidence spans must lie within their clip.` | Spans may be in clip time; add the clip's `start_seconds`. |
+| `Each evidence line needs content and at least one time span before Ready.` | Fill the evidence or set the question to `draft`. |
+| `Unsupported file version.` | An older app release cannot read this version; update the app, or import the original older file into that release. |

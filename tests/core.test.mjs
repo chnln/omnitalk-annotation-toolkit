@@ -140,7 +140,7 @@ test("schema 1.0 migrates without interpreting notes; current schema preserves m
   const old = structuredClone(p); old.schema_version = "1.0";
   delete old.videos[0].clips[0].questions; delete old.videos[0].clips[0].subtitle_status;
   const migrated = validateProject(old);
-  assert.equal(migrated.schema_version, "1.3");
+  assert.equal(migrated.schema_version, "1.4");
   assert.equal(migrated.videos[0].clips[0].note, "Question: keep this note");
   assert.deepEqual(migrated.videos[0].clips[0].questions, []);
   v.clips[0].questions.push(createQuestion(), createQuestion());
@@ -260,4 +260,69 @@ test("library filters combine title/ID text, annotator, and question status", as
   assert.deepEqual(ids({ status: "no-clips" }), ["Empty video"]);
   assert.deepEqual(ids({ annotator: authors[1].key, status: "all-ready" }), ["Dinner date"]);
   assert.deepEqual(ids({ annotator: authors[0].key, query: "task" }), []);
+});
+
+test("1.4 questions carry time-spanned evidence; 1.3 migrates with none; spans stay inside the clip", async () => {
+  const { createQuestion, createEvidence, formatAnnotation, spansOutside, cueModality } = await import("../src/annotation_toolkit/static/core.js");
+  const p = createProject(); const v = createVideo(parseYouTubeUrl(ID));
+  const clip = createClip({ start_seconds: 60, end_seconds: 90 });
+  const q = createQuestion();
+  Object.assign(q, { required_modalities: ["audio", "visual"], evidence_cues: ["speech_content", "vocalization", "gesture"] });
+  const speech = createEvidence("speech_content", { start_seconds: 61, end_seconds: 63.5 });
+  speech.content = "Woman: “Is that sugar?”";
+  const gesture = createEvidence("gesture", { start_seconds: 64, end_seconds: 65 });
+  gesture.spans.push({ start_seconds: 70, end_seconds: 72 });
+  Object.assign(gesture, { content: "Man points at the jar", function: "identifies what “that” refers to" });
+  q.annotations.push(speech, gesture); clip.questions.push(q); v.clips.push(clip); p.videos.push(v);
+  assert.equal(cueModality("vocalization"), "audio");
+  assert.deepEqual(validateProject(structuredClone(p)).videos[0].clips[0].questions[0].annotations, q.annotations);
+
+  assert.equal(formatAnnotation(q, clip), [
+    "Annotation:",
+    "(speech content): Woman: “Is that sugar?” [time_span: 01:01 ~ 01:04]",
+    "(gesture): Man points at the jar [time_span: 01:04 ~ 01:05] & [time_span: 01:10 ~ 01:12]",
+    "Function of non-speech content to communication:",
+    "(gesture) identifies what “that” refers to",
+  ].join("\n"));
+  assert.match(formatAnnotation(q, clip, { clipTime: true }), /\(gesture\): Man points at the jar \[time_span: 00:04 ~ 00:05\] & \[time_span: 00:10 ~ 00:12\]/);
+  assert.equal(spansOutside(clip, 60, 90), 0);
+  assert.equal(spansOutside(clip, 62, 71), 2, "the speech span starts before 62 and the second gesture span ends after 71");
+
+  const old = structuredClone(p); old.schema_version = "1.3"; delete old.videos[0].clips[0].questions[0].annotations;
+  assert.deepEqual(validateProject(old).videos[0].clips[0].questions[0].annotations, []);
+  const legacyExtra = structuredClone(p); legacyExtra.schema_version = "1.3";
+  assert.deepEqual(validateProject(legacyExtra).videos[0].clips[0].questions[0].annotations, [], "1.3 never carried evidence");
+
+  const ready = structuredClone(p); const rq = ready.videos[0].clips[0].questions[0];
+  Object.assign(rq, { prompt: "What is in the jar?", options: rq.options.map((o, i) => ({ ...o, text: `Option ${i}` })), status: "ready" });
+  rq.correct_option_id = rq.options[0].id;
+  assert.equal(validateProject(structuredClone(ready)).videos[0].clips[0].questions[0].status, "ready");
+  for (const mutate of [
+    (e) => { e.spans = []; },
+    (e) => { e.content = "  "; },
+  ]) {
+    const broken = structuredClone(ready); mutate(broken.videos[0].clips[0].questions[0].annotations[1]);
+    assert.throws(() => validateProject(broken), /evidence line needs content/, mutate.toString());
+  }
+  for (const mutate of [
+    (q) => { delete q.annotations; },
+    (q) => { q.annotations = {}; },
+    (q) => { q.annotations[0].cue = "smell"; },
+    (q) => { q.annotations[0].cue = "prosody"; },
+    (q) => { q.annotations[0].id = "x"; },
+    (q) => { q.annotations[1].id = q.annotations[0].id; },
+    (q) => { q.annotations[0].content = null; },
+    (q) => { q.annotations[0].function = "x".repeat(2001); },
+    (q) => { q.annotations[0].spans = {}; },
+    (q) => { q.annotations[0].spans = Array.from({ length: 21 }, () => ({ start_seconds: 61, end_seconds: 62 })); },
+    (q) => { q.annotations[0].spans[0].end_seconds = 61; },
+    (q) => { q.annotations[0].spans[0].start_seconds = 59; },
+    (q) => { q.annotations[0].spans[0].end_seconds = 90.5; },
+    (q) => { q.annotations[0].spans[0].start_seconds = "61"; },
+    (q) => { q.annotations = Array.from({ length: 51 }, () => createEvidence("gesture")); },
+  ]) {
+    const broken = structuredClone(p); mutate(broken.videos[0].clips[0].questions[0]);
+    assert.throws(() => validateProject(broken), Error, mutate.toString());
+  }
+  assert.throws(() => createEvidence("smell"), /Unknown evidence cue/);
 });

@@ -1,6 +1,6 @@
 /** Pure annotation data helpers. No network, storage, or DOM access. */
-export const SCHEMA_VERSION = "1.3";
-const LEGACY_VERSIONS = ["1.0", "1.1", "1.2"];
+export const SCHEMA_VERSION = "1.4";
+const LEGACY_VERSIONS = ["1.0", "1.1", "1.2", "1.3"];
 export const STORAGE_KEY = "omnitalk.annotation.project.v1";
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
@@ -9,7 +9,7 @@ const YOUTUBE_HOSTS = new Set([
   "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
   "youtu.be", "www.youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com",
 ]);
-export const LIMITS = { videos: 1000, clipsPerVideo: 10000, totalClips: 50000, tags: 50 };
+export const LIMITS = { videos: 1000, clipsPerVideo: 10000, totalClips: 50000, tags: 50, evidencePerQuestion: 50, spansPerEvidence: 20 };
 const now = () => new Date().toISOString();
 const uuid = () => globalThis.crypto.randomUUID();
 
@@ -218,10 +218,11 @@ export function validateProject(data) {
         object(clip, "Clip");
         if (clip.note === undefined || clip.tags === undefined) throw new Error("Each clip must contain note text and a tags array.");
         // Reference IDs arrived in 1.3; older clips have none, and notes are never parsed for one.
-        if (data.schema_version === SCHEMA_VERSION && clip.ref_id === undefined) throw new Error('Each clip must contain ref_id text; use "" when there is none.');
+        const hasRefId = ["1.3", SCHEMA_VERSION].includes(data.schema_version);
+        if (hasRefId && clip.ref_id === undefined) throw new Error('Each clip must contain ref_id text; use "" when there is none.');
         return {
           id: recordId(clip.id, "Clip ID"),
-          ...clipFields({ ...clip, ref_id: data.schema_version === SCHEMA_VERSION ? clip.ref_id : "" }, duration),
+          ...clipFields({ ...clip, ref_id: hasRefId ? clip.ref_id : "" }, duration),
           annotator: legacyAuthor ? annotatorCopy(legacyAuthor) : annotatorRecord(clip.annotator, "Clip annotator"),
           ...validateClipQA(clip, data.schema_version, recordId),
           created_at: timestamp(clip.created_at, "Clip creation time"),
@@ -236,7 +237,7 @@ export function validateProject(data) {
 
 /** Evidence taxonomy: broad sources first, optional specific cues second. */
 export const MODALITIES = {
-  audio: { label: "Audio", cues: { speech_content: "Speech content", prosody: "Prosody", environmental_sounds: "Environmental sounds" } },
+  audio: { label: "Audio", cues: { speech_content: "Speech content", vocalization: "Vocalization", prosody: "Prosody", environmental_sounds: "Environmental sounds" } },
   visual: { label: "Visual", cues: { action_event: "Action / Event", gesture: "Gesture", facial_expression: "Facial expression", gaze: "Gaze", person_appearance: "Person / Appearance", object_scene: "Object / Scene" } },
   text: { label: "Text", cues: { subtitles: "Subtitles", scene_text: "Scene text" } },
 };
@@ -244,19 +245,53 @@ export const SUBTITLE_STATUSES = { unknown: "Not reviewed", none: "No subtitles"
 export function createQuestion() {
   const time = now();
   return { id: uuid(), prompt: "", options: [0, 1, 2].map(() => ({ id: uuid(), text: "" })), correct_option_id: null,
-    required_modalities: [], evidence_cues: [], rationale: "", status: "draft", created_at: time, updated_at: time };
+    required_modalities: [], evidence_cues: [], annotations: [], rationale: "", status: "draft", created_at: time, updated_at: time };
+}
+
+/** Category names used in the team document's Annotation sections. */
+export const TEAM_CUE_LABELS = {
+  speech_content: "speech content", vocalization: "vocalization", prosody: "prosody", environmental_sounds: "environmental sound",
+  action_event: "action", gesture: "gesture", facial_expression: "facial expression", gaze: "gaze",
+  person_appearance: "human appearance", object_scene: "object/scene", subtitles: "subtitles", scene_text: "written content",
+};
+const ALL_CUES = Object.fromEntries(Object.entries(MODALITIES).flatMap(([modality, group]) => Object.keys(group.cues).map(cue => [cue, modality])));
+/** The modality a cue belongs to, e.g. "gesture" -> "visual". */
+export const cueModality = (cue) => ALL_CUES[cue] ?? null;
+
+/** One evidence line: a cue, what was said or seen, when (source-video seconds), and its communicative function. */
+export function createEvidence(cue, span = null) {
+  if (!cueModality(cue)) throw new Error("Unknown evidence cue.");
+  return { id: uuid(), cue, content: "", spans: span ? [{ start_seconds: seconds(span.start_seconds, "Span start"), end_seconds: seconds(span.end_seconds, "Span end") }] : [], function: "" };
+}
+
+/** Evidence spans of a clip's questions that would fall outside a new clip range. */
+export function spansOutside(clip, start, end) {
+  return (clip.questions || []).flatMap(q => (q.annotations || []).flatMap(e => e.spans)).filter(s => s.start_seconds < start || s.end_seconds > end).length;
+}
+
+/** Render a question's evidence in the team document's Annotation format. */
+export function formatAnnotation(question, clip, { clipTime = false } = {}) {
+  const offset = clipTime ? clip.start_seconds : 0;
+  const label = (cue) => TEAM_CUE_LABELS[cue] ?? cue;
+  // Whole seconds, widened outward so a short span never collapses to "00:10 ~ 00:10".
+  const span = (s) => `[time_span: ${formatTime(Math.floor(Math.max(0, s.start_seconds - offset) + 1e-6))} ~ ${formatTime(Math.ceil(Math.max(0, s.end_seconds - offset) - 1e-6))}]`;
+  const lines = ["Annotation:", ...question.annotations.map(e => `(${label(e.cue)}): ${e.content.trim()}${e.spans.length ? ` ${e.spans.map(span).join(" & ")}` : ""}`)];
+  const functions = question.annotations.filter(e => e.function.trim());
+  if (functions.length) lines.push("Function of non-speech content to communication:", ...functions.map(e => `(${label(e.cue)}) ${e.function.trim()}`));
+  return lines.join("\n");
 }
 export function questionReadyError(q) {
   if (!q.prompt.trim()) return "Enter a question before marking it Ready.";
   if (q.options.length < 2 || q.options.some(o => !o.text.trim())) return "Ready questions need at least two nonempty answer options.";
   if (!q.options.some(o => o.id === q.correct_option_id)) return "Select the correct answer.";
   if (!q.required_modalities.length) return "Select at least one required modality. Audio-only integration is allowed.";
+  if ((q.annotations || []).some(e => !e.content.trim() || !e.spans.length)) return "Each evidence line needs content and at least one time span before Ready.";
   return "";
 }
 export function validateQuestion(q, recordId = (value) => {
   if (typeof value !== "string" || !UUID.test(value)) throw new Error("Question and option IDs must be UUIDs.");
   return value.toLowerCase();
-}) {
+}, { version = SCHEMA_VERSION, bounds = null } = {}) {
   object(q, "Question");
   if (!["draft", "ready"].includes(q.status)) throw new Error("Question status must be draft or ready.");
   if (!Array.isArray(q.options) || q.options.length > 26) throw new Error("A question supports up to 26 options.");
@@ -271,18 +306,39 @@ export function validateQuestion(q, recordId = (value) => {
   };
   const modalities = selection(q.required_modalities, Object.keys(MODALITIES), "required modalities");
   const cues = selection(q.evidence_cues, modalities.flatMap(m => Object.keys(MODALITIES[m].cues)), "evidence cues or parent modality");
+  // Evidence spans arrived in 1.4; older questions migrate with none.
+  const annotations = version === SCHEMA_VERSION ? validateEvidence(q.annotations, cues, bounds, recordId) : [];
   const result = { id, prompt: text(q.prompt, "Question", 10000), options, correct_option_id: correct,
-    required_modalities: modalities, evidence_cues: cues, rationale: text(q.rationale, "Rationale", 20000), status: q.status,
+    required_modalities: modalities, evidence_cues: cues, annotations, rationale: text(q.rationale, "Rationale", 20000), status: q.status,
     created_at: timestamp(q.created_at, "Question creation time"), updated_at: timestamp(q.updated_at, "Question update time") };
   const error = questionReadyError(result);
   if (result.status === "ready" && error) throw new Error(error);
   return result;
 }
+function validateEvidence(value, cues, bounds, recordId) {
+  if (!Array.isArray(value) || value.length > LIMITS.evidencePerQuestion) throw new Error(`Question annotations must be an array with at most ${LIMITS.evidencePerQuestion} evidence lines.`);
+  return value.map((e) => {
+    object(e, "Evidence");
+    if (!cueModality(e.cue)) throw new Error("Invalid evidence cue.");
+    if (!cues.includes(e.cue)) throw new Error("Each evidence line's cue must also be selected in the question's evidence cues.");
+    if (!Array.isArray(e.spans) || e.spans.length > LIMITS.spansPerEvidence) throw new Error(`Evidence spans must be an array with at most ${LIMITS.spansPerEvidence} spans.`);
+    const spans = e.spans.map((s) => {
+      object(s, "Evidence span");
+      const start = seconds(s.start_seconds, "Span start");
+      const end = seconds(s.end_seconds, "Span end");
+      if (end <= start) throw new Error("Each evidence span must end after it starts.");
+      if (bounds && (start < bounds.start || end > bounds.end)) throw new Error("Evidence spans must lie within their clip.");
+      return { start_seconds: start, end_seconds: end };
+    });
+    return { id: recordId(e.id, "Evidence ID"), cue: e.cue, content: text(e.content, "Evidence content", 5000), spans, function: text(e.function, "Evidence function", 2000) };
+  });
+}
 function validateClipQA(clip, version, recordId) {
   if (version === "1.0") return { subtitle_status: "unknown", questions: [] };
   if (!Object.hasOwn(SUBTITLE_STATUSES, clip.subtitle_status)) throw new Error("Invalid clip subtitle status.");
   if (!Array.isArray(clip.questions) || clip.questions.length > 100) throw new Error("A clip supports up to 100 questions.");
-  return { subtitle_status: clip.subtitle_status, questions: clip.questions.map(q => validateQuestion(q, recordId)) };
+  const bounds = { start: seconds(clip.start_seconds, "Clip start"), end: seconds(clip.end_seconds, "Clip end") };
+  return { subtitle_status: clip.subtitle_status, questions: clip.questions.map(q => validateQuestion(q, recordId, { version, bounds })) };
 }
 
 /* Library filters: pure helpers so the sidebar and tests share one definition. */
