@@ -575,6 +575,7 @@ function setPlayerReady(ready) {
   updateSelectionDuration();
   // Keep annotation/download controls stable as the asynchronous player loads.
   for (const button of $("clips-body").querySelectorAll('[data-action="play-clip"]')) button.disabled = !ready;
+  for (const button of $("qa-editor").querySelectorAll('[data-action="play-evidence"]')) button.disabled = !ready;
   renderTimeline();
 }
 
@@ -1168,6 +1169,7 @@ function renderEvidenceEditor(q, clip) {
         setSpan(key, Math.round(now * 1000) / 1000);
       }, "capture-button");
       const play = actionButton(`Play evidence ${i + 1} span ${j + 1}`, "play", () => previewInterval(span.start_seconds, span.end_seconds));
+      play.dataset.action = "play-evidence";
       play.disabled = !playerReady;
       const drop = qaButton("×", () => { e.spans.splice(j, 1); qaSave(q); renderQAEditor(); }, "qa-remove");
       drop.setAttribute("aria-label", `Remove evidence ${i + 1} span ${j + 1}`);

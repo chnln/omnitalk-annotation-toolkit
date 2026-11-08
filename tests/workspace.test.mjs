@@ -1014,3 +1014,37 @@ test("a playhead within half a millisecond of the clip end adds no empty span (i
   await button("+ Add time span").click();
   assert.deepEqual(plain(q().annotations[0].spans), [{ start_seconds: 10, end_seconds: 40 }], "falls back to the whole clip");
 });
+
+/** A saved 10-40 s clip with one question open in the QA editor. */
+async function evidenceEditor({ ready = true } = {}) {
+  const w = workspace();
+  w.api.addVideo("M7lc1UVf-VE");
+  if (ready) { w.resolveAPI(); await w.flush(); w.instances.at(-1).ready(); }
+  w.fill("10", "40", "clip"); w.api.saveClip();
+  await w.node("qa-add").click();
+  const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
+  const all = () => descendants(w.node("qa-editor"));
+  const labelled = (label) => all().find((n) => n.attributes["aria-label"] === label);
+  const button = (text) => all().find((n) => n.tagName === "BUTTON" && n.textContent === text);
+  const q = () => w.api.state().project.videos[0].clips[0].questions[0];
+  const span = (j = 0) => JSON.parse(JSON.stringify(q().annotations[0].spans[j]));
+  const type = (label, value) => { labelled(label).value = value; return labelled(label).fire("change"); };
+  await button("+ Add evidence").click();
+  if (!q().annotations[0].spans.length) await button("+ Add time span").click();
+  return { w, all, labelled, button, q, span, type };
+}
+
+test("evidence Play buttons follow player readiness without rebuilding the editor (issue #18)", async () => {
+  const { w, labelled } = await evidenceEditor({ ready: false });
+  const play = labelled("Play evidence 1 span 1");
+  assert.equal(play.disabled, true, "the editor rendered while YouTube was still connecting");
+  w.resolveAPI(); await w.flush(); w.instances.at(-1).ready();
+  assert.equal(labelled("Play evidence 1 span 1"), play, "the editor is not rebuilt");
+  assert.equal(play.disabled, false, "delayed readiness enables Play");
+  w.instances.at(-1).fail();
+  assert.equal(play.disabled, true, "a player failure disables Play");
+  await w.node("retry-player").fire("click"); await w.flush();
+  assert.equal(play.disabled, true, "still disabled while retrying");
+  w.instances.at(-1).ready();
+  assert.equal(play.disabled, false, "a successful retry enables Play");
+});
