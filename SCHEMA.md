@@ -122,7 +122,7 @@ Each evidence object is one line of the team's *Annotation* section: a piece of 
 
 `vocalization` covers non-lexical sounds a person makes (laughs, sighs, gasps, "mm-hm"); `prosody` covers how words are said; `environmental_sounds` covers sounds not made by speakers.
 
-The app's **Copy as team text** button renders the evidence in the team document format, in original-video or clip time:
+The app's **Copy as team text** button renders the evidence in the team document format, in original-video or clip time. Times are whole seconds, rounded outward and then kept inside the clip, so the text approximates fractional spans:
 
 ```text
 Annotation:
