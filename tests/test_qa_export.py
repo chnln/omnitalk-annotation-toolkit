@@ -68,3 +68,56 @@ class QuestionExportTests(unittest.TestCase):
                 target[path[-1]] = value
             with self.subTest(path=path, value=value), self.assertRaises(DownloadError):
                 validate_export(broken)
+
+class EvidenceExportTests(unittest.TestCase):
+    def fixture(self):
+        p = QuestionExportTests().fixture()
+        p['schema_version'] = '1.4'
+        clip = p['videos'][0]['clips'][0]
+        clip['annotator'] = {'id': '', 'name': 'Nan'}
+        clip['ref_id'] = 'R8-01'
+        start, end = clip['start_seconds'], clip['end_seconds']
+        q = clip['questions'][0]
+        q['annotations'] = [
+            {'id': str(uuid4()), 'cue': 'speech_content', 'content': 'A: "Sure."', 'function': '',
+             'spans': [{'start_seconds': start, 'end_seconds': end}]},
+            {'id': str(uuid4()), 'cue': 'prosody', 'content': 'flat, drawn-out "sure"', 'function': 'marks sarcasm',
+             'spans': [{'start_seconds': start, 'end_seconds': (start + end) / 2}, {'start_seconds': (start + end) / 2, 'end_seconds': end}]},
+        ]
+        return p
+
+    def test_schema_1_4_evidence_is_accepted(self):
+        p = self.fixture()
+        self.assertEqual(validate_export(copy.deepcopy(p)), p)
+        q = p['videos'][0]['clips'][0]['questions'][0]
+        q['status'] = 'draft'
+        q['annotations'][0].update(content='', spans=[])
+        self.assertEqual(validate_export(copy.deepcopy(p)), p, 'drafts may hold unfinished evidence')
+
+    def test_schema_1_4_rejects_invalid_evidence(self):
+        def mutations(q, start, end):
+            e = q['annotations'][0]
+            return [
+                lambda: q.pop('annotations'),
+                lambda: q.update(annotations={}),
+                lambda: e.update(cue='gaze'),
+                lambda: e.update(cue='smell'),
+                lambda: e.update(id='x'),
+                lambda: e.update(content=None),
+                lambda: e.update(function='x' * 2001),
+                lambda: e.update(spans={}),
+                lambda: e.update(spans=[{'start_seconds': start, 'end_seconds': start}]),
+                lambda: e.update(spans=[{'start_seconds': start - 1, 'end_seconds': end}]),
+                lambda: e.update(spans=[{'start_seconds': start, 'end_seconds': end + 1}]),
+                lambda: e.update(spans=[{'start_seconds': True, 'end_seconds': end}]),
+                lambda: e.update(spans=[{'start_seconds': start, 'end_seconds': float('inf')}]),
+                lambda: e.update(spans=[]),
+                lambda: e.update(content='  '),
+            ]
+        count = len(mutations({'annotations': [{}]}, 0, 1))
+        for i in range(count):
+            p = self.fixture()
+            clip = p['videos'][0]['clips'][0]
+            mutations(clip['questions'][0], clip['start_seconds'], clip['end_seconds'])[i]()
+            with self.subTest(i=i), self.assertRaises(DownloadError):
+                validate_export(p)

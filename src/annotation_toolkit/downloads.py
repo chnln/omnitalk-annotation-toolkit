@@ -438,8 +438,8 @@ def validate_export(data):
 
     obj(data, "Project")
     version = data.get("schema_version")
-    if version not in ("1.0", "1.1", "1.2", "1.3"):
-        raise DownloadError("Unsupported annotation schema; expected version 1.0, 1.1, 1.2 or 1.3.")
+    if version not in ("1.0", "1.1", "1.2", "1.3", "1.4"):
+        raise DownloadError("Unsupported annotation schema; expected version 1.0, 1.1, 1.2, 1.3 or 1.4.")
     identifier(data.get("project_id"))
     text(data.get("project_name"), "Project name", 200)
     annotator(data.get("annotator"), "Annotator")
@@ -481,14 +481,14 @@ def validate_export(data):
                 raise DownloadError("Clip tags must be a list with at most 50 entries.")
             for tag in tags:
                 text(tag, "Tag", 100)
-            if version == "1.3":
+            if version in ("1.3", "1.4"):
                 ref_id = clip.get("ref_id")
                 text(ref_id, "Reference ID", 100)
                 if ref_id != ref_id.strip() or "\n" in ref_id or "\r" in ref_id:
                     raise DownloadError("Reference ID must be a single trimmed line.")
-            if version in ("1.2", "1.3"):
+            if version in ("1.2", "1.3", "1.4"):
                 annotator(clip.get("annotator"), "Clip annotator")
-            if version in ("1.1", "1.2", "1.3"):
+            if version in ("1.1", "1.2", "1.3", "1.4"):
                 if clip.get("subtitle_status") not in ("unknown", "none", "present", "masked"):
                     raise DownloadError("Invalid subtitle status.")
                 questions = clip.get("questions")
@@ -522,7 +522,7 @@ def validate_export(data):
                     if "correct_option_id" not in question or (question["correct_option_id"] is not None and question["correct_option_id"] not in option_ids):
                         raise DownloadError("Correct answer must reference an existing option.")
                     taxonomy = {
-                        "audio": ("speech_content", "prosody", "environmental_sounds"),
+                        "audio": ("speech_content", "vocalization", "prosody", "environmental_sounds"),
                         "visual": ("action_event", "gesture", "facial_expression", "gaze", "person_appearance", "object_scene"),
                         "text": ("subtitles", "scene_text"),
                     }
@@ -533,11 +533,33 @@ def validate_export(data):
                             raise DownloadError("Invalid modality or evidence selection.")
                     modalities = question.get("required_modalities")
                     selection(modalities, taxonomy)
-                    selection(question.get("evidence_cues"), [cue for m in modalities for cue in taxonomy[m]])
+                    cues = question.get("evidence_cues")
+                    selection(cues, [cue for m in modalities for cue in taxonomy[m]])
+                    annotations = question.get("annotations") if version == "1.4" else []
+                    if not isinstance(annotations, list) or len(annotations) > 50:
+                        raise DownloadError("Question annotations must be a list of at most 50 evidence lines.")
+                    for evidence in annotations:
+                        obj(evidence, "Evidence")
+                        identifier(evidence.get("id"))
+                        if evidence.get("cue") not in cues:
+                            raise DownloadError("Each evidence cue must also be selected in the question's evidence cues.")
+                        text(evidence.get("content"), "Evidence content", 5000)
+                        text(evidence.get("function"), "Evidence function", 2000)
+                        spans = evidence.get("spans")
+                        if not isinstance(spans, list) or len(spans) > 20:
+                            raise DownloadError("Evidence spans must be a list of at most 20 spans.")
+                        for span in spans:
+                            obj(span, "Evidence span")
+                            a, b = span.get("start_seconds"), span.get("end_seconds")
+                            if any(isinstance(value, bool) or not isinstance(value, (int, float))
+                                   or not math.isfinite(value) for value in (a, b)) or not start <= a < b <= end:
+                                raise DownloadError("Evidence spans must be ordered and lie within their clip.")
                     if question["status"] == "ready" and (not question["prompt"].strip() or len(options) < 2
                             or any(not option["text"].strip() for option in options)
-                            or question["correct_option_id"] is None or not modalities):
-                        raise DownloadError("Ready questions need a prompt, two nonempty options, a correct answer and a modality.")
+                            or question["correct_option_id"] is None or not modalities
+                            or any(not e["content"].strip() or not e["spans"] for e in annotations)):
+                        raise DownloadError("Ready questions need a prompt, two nonempty options, a correct answer, a modality, "
+                                            "and content and a time span on every evidence line.")
     return data
 
 
