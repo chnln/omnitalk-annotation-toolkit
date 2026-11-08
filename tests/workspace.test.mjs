@@ -1087,3 +1087,71 @@ test("moving a span's start past its end carries the end along within the clip (
   await all().filter((n) => n.tagName === "BUTTON" && n.textContent === "Start = now")[0].click();
   assert.deepEqual(span(), { start_seconds: 35, end_seconds: 37 }, "Start = now moves the span the same way");
 });
+
+test("span time edits keep the editor's controls in place (issue #16; events are fired individually, not a real Tab or click)", async () => {
+  const { w, all, labelled, button, q, span, type } = await evidenceEditor();
+  const attached = (node) => w.node("qa-editor").contains(node);
+  const startInput = labelled("Evidence 1 span 1 start");
+  const endInput = labelled("Evidence 1 span 1 end");
+  const remove = labelled("Remove evidence 1 span 1");
+  const markReady = button("Mark Ready");
+  const listButton = w.node("qa-list").children[0];
+  endInput.focus(); // where a Tab from the start field lands
+  await type("Evidence 1 span 1 start", "00:12");
+  assert.deepEqual(span().start_seconds, 12);
+  assert.equal(w.document.activeElement, endInput, "focus is not disturbed");
+  for (const node of [startInput, endInput, remove, markReady]) assert.ok(attached(node), "the control stays attached");
+  assert.equal(labelled("Evidence 1 span 1 start"), startInput);
+  assert.equal(startInput.value, "00:12.000", "the field shows the normalised time");
+  assert.equal(w.node("qa-list").children[0], listButton, "the question list is not rebuilt while the status is unchanged");
+  assert.match(all().find((n) => n.className === "qa-span-relative").textContent, /^clip 00:02/, "the clip-relative label follows the edit");
+
+  await type("Evidence 1 span 1 end", "00:05");
+  assert.equal(all().find((n) => n.attributes.role === "alert" && n.className === "field-error").hidden, false);
+  await type("Evidence 1 span 1 end", "00:15");
+  assert.equal(all().find((n) => n.attributes.role === "alert" && n.className === "field-error").hidden, true, "an accepted edit clears the earlier error");
+  assert.equal(q().status, "draft");
+});
+
+test("a span edit on a Ready question still returns it to Draft in the list (issue #16)", async () => {
+  const { w, button, labelled, q, type } = await evidenceEditor();
+  Object.assign(q(), { prompt: "Q" });
+  q().options.forEach((o, i) => { o.text = `Option ${i}`; }); q().correct_option_id = q().options[0].id;
+  labelled("Evidence 1 content").value = "x"; await labelled("Evidence 1 content").fire("input");
+  await button("Mark Ready").click();
+  assert.equal(q().status, "ready");
+  assert.equal(w.node("qa-list").children[0].children[0].textContent, "Q1 · Ready");
+  await type("Evidence 1 span 1 start", "00:12");
+  assert.equal(q().status, "draft");
+  assert.equal(w.node("qa-list").children[0].children[0].textContent, "Q1 · Draft");
+  assert.match(w.node("qa-state").textContent, /^Draft/);
+});
+
+test("focus returns to the equivalent evidence control after a rebuild (issue #16)", async () => {
+  const { w, labelled, button, q } = await evidenceEditor();
+  const focused = (node) => { assert.equal(w.document.activeElement, node); assert.ok(w.node("qa-editor").contains(node)); };
+
+  const cue = labelled("Evidence 1 cue");
+  cue.focus(); cue.value = "gesture"; await cue.fire("change");
+  assert.notEqual(labelled("Evidence 1 cue"), cue, "the cue change rebuilds the editor");
+  focused(labelled("Evidence 1 cue"));
+
+  const addSpan = button("+ Add time span");
+  addSpan.focus(); await addSpan.click();
+  assert.equal(q().annotations[0].spans.length, 2);
+  focused(button("+ Add time span"));
+
+  const addEvidence = button("+ Add evidence");
+  addEvidence.focus(); await addEvidence.click();
+  focused(button("+ Add evidence"));
+  assert.equal(q().annotations.length, 2);
+
+  const removeSpan = labelled("Remove evidence 1 span 2");
+  removeSpan.focus(); await removeSpan.click();
+  assert.equal(w.document.activeElement.textContent, "+ Add time span", "removing a span moves focus to that line's Add button");
+  assert.ok(w.node("qa-editor").contains(w.document.activeElement));
+
+  const removeLine = labelled("Remove evidence 2");
+  removeLine.focus(); await removeLine.click();
+  focused(button("+ Add evidence"));
+});
