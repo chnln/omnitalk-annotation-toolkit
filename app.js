@@ -575,6 +575,7 @@ function setPlayerReady(ready) {
   updateSelectionDuration();
   // Keep annotation/download controls stable as the asynchronous player loads.
   for (const button of $("clips-body").querySelectorAll('[data-action="play-clip"]')) button.disabled = !ready;
+  for (const button of $("qa-editor").querySelectorAll('[data-action="play-evidence"]')) button.disabled = !ready;
   renderTimeline();
 }
 
@@ -1058,15 +1059,17 @@ $("qa-toggle").addEventListener("click", () => setQACollapsed(!$("qa-body").hidd
 
 // Question drafts are part of the project: every edit is persisted immediately.
 function qaClip() { return currentVideo()?.clips.find(c => c.id === qaClipId); }
-function qaSave(q) {
+function qaSave(q, { listChanged = true } = {}) {
   const clip = qaClip();
   if (!clip) return;
   const time = new Date().toISOString();
   if (q) { q.updated_at = time; q.status = "draft"; }
   clip.updated_at = time;
   persistProject();
-  renderQAList();
-  if (libraryFilter.status) renderVideos();
+  if (listChanged) {
+    renderQAList();
+    if (libraryFilter.status) renderVideos();
+  }
   const state = $("qa-state");
   if (state && q) state.textContent = (storageBlocked ? "Draft · export a backup" : "Draft · edits saved locally");
 }
@@ -1123,6 +1126,7 @@ function renderEvidenceEditor(q, clip) {
     q.annotations.push(createEvidence(cue, playheadSpan(clip)));
     qaSave(q); renderQAEditor();
   }, "text-button");
+  add.dataset.focusKey = "add-evidence";
   add.disabled = q.annotations.length >= LIMITS.evidencePerQuestion;
   heading.append(el("strong", "", "Annotation · evidence with time spans"), add);
   box.append(heading, el("p", "qa-help", "One line per piece of evidence needed for the answer: what is said or seen, when, and for non-speech evidence its function in the communication. Times are in the original video; spans may be non-contiguous."));
@@ -1134,9 +1138,9 @@ function renderEvidenceEditor(q, clip) {
     const top = el("div", "qa-evidence-top");
     const select = el("select"); select.setAttribute("aria-label", `Evidence ${i + 1} cue`);
     for (const [cue, label] of cueOptions) { const o = el("option", "", label); o.value = cue; select.append(o); }
-    select.value = e.cue;
+    select.value = e.cue; select.dataset.focusKey = `cue-${e.id}`;
     select.addEventListener("change", () => { e.cue = select.value; ensureCue(q, e.cue); qaSave(q); renderQAEditor(); });
-    const remove = qaButton("×", () => { q.annotations = q.annotations.filter(item => item.id !== e.id); qaSave(q); renderQAEditor(); }, "qa-remove");
+    const remove = qaButton("×", () => { q.annotations = q.annotations.filter(item => item.id !== e.id); qaSave(q); renderQAEditor("add-evidence"); }, "qa-remove");
     remove.setAttribute("aria-label", `Remove evidence ${i + 1}`);
     top.append(el("span", "qa-evidence-number", String(i + 1)), select, remove);
     const content = el("textarea"); content.rows = 1; content.maxLength = 5000; content.value = e.content;
@@ -1146,18 +1150,28 @@ function renderEvidenceEditor(q, clip) {
     card.append(top, content);
     for (const [j, span] of e.spans.entries()) {
       const row = el("div", "qa-span");
+      // A refused edit puts the stored times back, so the fields never show a value that was not saved.
+      const showSpan = () => {
+        inputs[0].value = clock(span.start_seconds); inputs[1].value = clock(span.end_seconds);
+        rel.textContent = `clip ${formatTime(span.start_seconds - clip.start_seconds)}–${formatTime(span.end_seconds - clip.start_seconds)}`;
+      };
+      const reject = (message) => { showSpan(); fail(message); };
       const setSpan = (key, value) => {
         const next = { ...span, [key]: value };
-        if (next.end_seconds <= next.start_seconds) return fail("A span must end after it starts.");
-        if (next.start_seconds < clip.start_seconds || next.end_seconds > clip.end_seconds) return fail(`Spans must lie within the clip (${clock(clip.start_seconds)} – ${clock(clip.end_seconds)}).`);
-        span[key] = value; qaSave(q); renderQAEditor();
+        // Moving the start past the end carries the end along, keeping the span's length as far as the clip allows.
+        if (key === "start_seconds" && value >= span.end_seconds) next.end_seconds = parseTime(Math.min(clip.end_seconds, value + span.end_seconds - span.start_seconds));
+        if (next.start_seconds >= clip.end_seconds || next.start_seconds < clip.start_seconds || next.end_seconds > clip.end_seconds) return reject(`Spans must lie within the clip (${clock(clip.start_seconds)} – ${clock(clip.end_seconds)}).`);
+        if (next.end_seconds <= next.start_seconds) return reject("A span must end after it starts.");
+        // Updated in place: a rebuild here would detach the field or button that a Tab or click is moving to.
+        Object.assign(span, next); error.hidden = true; showSpan();
+        qaSave(q, { listChanged: q.status === "ready" });
       };
       const inputs = ["start_seconds", "end_seconds"].map((key) => {
-        const input = el("input", "time-input qa-span-time"); input.value = clock(span[key]);
+        const input = el("input", "time-input qa-span-time");
         input.setAttribute("aria-label", `Evidence ${i + 1} span ${j + 1} ${key === "start_seconds" ? "start" : "end"}`);
         input.addEventListener("change", () => {
           let value;
-          try { value = parseTime(input.value); } catch (err) { return fail(err.message); }
+          try { value = parseTime(input.value); } catch (err) { return reject(err.message); }
           setSpan(key, value);
         });
         return input;
@@ -1168,10 +1182,12 @@ function renderEvidenceEditor(q, clip) {
         setSpan(key, Math.round(now * 1000) / 1000);
       }, "capture-button");
       const play = actionButton(`Play evidence ${i + 1} span ${j + 1}`, "play", () => previewInterval(span.start_seconds, span.end_seconds));
+      play.dataset.action = "play-evidence";
       play.disabled = !playerReady;
-      const drop = qaButton("×", () => { e.spans.splice(j, 1); qaSave(q); renderQAEditor(); }, "qa-remove");
+      const drop = qaButton("×", () => { e.spans.splice(j, 1); qaSave(q); renderQAEditor(`add-span-${e.id}`); }, "qa-remove");
       drop.setAttribute("aria-label", `Remove evidence ${i + 1} span ${j + 1}`);
-      const rel = el("span", "qa-span-relative", `clip ${formatTime(span.start_seconds - clip.start_seconds)}–${formatTime(span.end_seconds - clip.start_seconds)}`);
+      const rel = el("span", "qa-span-relative");
+      showSpan();
       row.append(play, inputs[0], capture("start_seconds"), el("span", "qa-span-dash", "→"), inputs[1], capture("end_seconds"), rel, drop);
       card.append(row);
     }
@@ -1179,6 +1195,7 @@ function renderEvidenceEditor(q, clip) {
       e.spans.push(playheadSpan(clip) ?? { start_seconds: clip.start_seconds, end_seconds: clip.end_seconds });
       qaSave(q); renderQAEditor();
     }, "text-button");
+    addSpan.dataset.focusKey = `add-span-${e.id}`;
     addSpan.disabled = e.spans.length >= LIMITS.spansPerEvidence;
     card.append(addSpan);
     if (e.cue !== "speech_content" || e.function) {
@@ -1202,7 +1219,8 @@ function renderEvidenceEditor(q, clip) {
   }
   return box;
 }
-function renderQAEditor() {
+/** Rebuilds the editor, then returns focus to the control carrying focusKey (by default, the one that had it). */
+function renderQAEditor(focusKey = document.activeElement?.dataset?.focusKey) {
   const clip = qaClip();
   const host = $("qa-editor"); host.replaceChildren();
   if (!clip) return;
@@ -1278,6 +1296,7 @@ function renderQAEditor() {
   }, "text-button"));
   host.append(error, footer);
   resizeQAFields();
+  if (focusKey) host.querySelector(`[data-focus-key="${focusKey}"]`)?.focus();
 }
 $("qa-add").addEventListener("click", () => {
   const clip = qaClip(); if (!clip || clip.questions.length >= 100) return;
