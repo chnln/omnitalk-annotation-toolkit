@@ -1,9 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createProject, createVideo, createClip, parseYouTubeUrl, parseTime, formatTime, validateProject } from "../src/annotation_toolkit/static/core.js";
 
 const ID = "M7lc1UVf-VE";
 const canonical = `https://www.youtube.com/watch?v=${ID}`;
+
+test("shared validator fixtures: core.js agrees with validate_export in downloads.py", () => {
+  const { base, aliases, cases } = JSON.parse(readFileSync(new URL("./fixtures/validator_cases.json", import.meta.url), "utf8"));
+  for (const { name, valid, set } of cases) {
+    const project = structuredClone(base);
+    for (const [alias, value] of set) {
+      const path = aliases[alias];
+      const target = path.slice(0, -1).reduce((node, key) => node[key], project);
+      target[path.at(-1)] = value?.$repeat ? value.$repeat[0].repeat(value.$repeat[1]) : value;
+    }
+    if (valid) assert.doesNotThrow(() => validateProject(project), name);
+    else assert.throws(() => validateProject(project), Error, name);
+  }
+});
 
 test("common YouTube forms preserve video identity and parse starting times", () => {
   for (const input of [ID, canonical, `http://m.youtube.com/watch?v=${ID}`, `youtube.com/watch?v=${ID}`, `https://youtu.be/${ID}`, `https://www.youtube.com/shorts/${ID}`, `https://youtube.com/embed/${ID}`, `https://www.youtube-nocookie.com/embed/${ID}`, `https://youtube.com/live/${ID}`]) {

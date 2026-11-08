@@ -16,10 +16,12 @@ import shutil
 import subprocess
 import tempfile
 from threading import Lock, Thread
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}\Z")
+RECORD_ID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\Z")
 MAX_TIME = 7 * 24 * 3600
+MAX_EXPORT_SECONDS = (2 ** 53 - 1) / 1000  # Number.MAX_SAFE_INTEGER / 1000 in core.js
 MAX_HISTORY = 10000
 MAX_PENDING = 10000
 MEDIA_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
@@ -47,6 +49,15 @@ def _seconds(value, label):
             or not 0 <= value <= MAX_TIME or not math.isfinite(value)):
         raise DownloadError(f"{label} must be a finite number between 0 and {MAX_TIME} seconds.")
     return round(float(value), 3)
+
+
+def _milliseconds(value, message):
+    """Range-check and round exactly as seconds() in core.js: Math.round(value * 1000) / 1000."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= MAX_EXPORT_SECONDS:
+        raise DownloadError(message)
+    scaled = float(value) * 1000
+    ticks = math.floor(scaled)
+    return (ticks if scaled - ticks < 0.5 else ticks + 1) / 1000
 
 
 def validate_request(data):
@@ -417,16 +428,16 @@ def validate_export(data):
             raise DownloadError(f"{label} must be an object.")
 
     def text(value, label, limit):
-        if not isinstance(value, str) or len(value) > limit:
+        # Limits count UTF-16 code units, like String.length in core.js.
+        if not isinstance(value, str) or len(value) + sum(ord(char) > 0xFFFF for char in value) > limit:
             raise DownloadError(f"{label} must be text with at most {limit} characters.")
 
     ids = set()
 
     def identifier(value):
-        try:
-            normalized = str(UUID(value))
-        except (ValueError, TypeError, AttributeError) as error:
-            raise DownloadError("Record IDs must be valid UUIDs.") from error
+        if not isinstance(value, str) or not RECORD_ID.fullmatch(value):
+            raise DownloadError("Record IDs must be valid UUIDs.")
+        normalized = value.lower()
         if normalized in ids:
             raise DownloadError("Duplicate record IDs.")
         ids.add(normalized)
@@ -462,17 +473,16 @@ def validate_export(data):
         if total > 50000:
             raise DownloadError("A project can contain at most 50000 clips.")
         duration = video.get("duration_seconds")
-        if duration is not None and (isinstance(duration, bool) or not isinstance(duration, (int, float))
-                                     or not 0 < duration <= 9007199254740.99 or not math.isfinite(duration)):
-            raise DownloadError("Video duration must be positive or null.")
+        if duration is not None:
+            duration = _milliseconds(duration, "Video duration must be positive or null.")
+            if duration == 0:
+                raise DownloadError("Video duration must be positive or null.")
         for clip in clips:
             obj(clip, "Clip")
             identifier(clip.get("id"))
             # Exports preserve the frontend's wider timestamp range.
-            start, end = clip.get("start_seconds"), clip.get("end_seconds")
-            if any(isinstance(value, bool) or not isinstance(value, (int, float))
-                   or not 0 <= value <= 9007199254740.99 or not math.isfinite(value) for value in (start, end)):
-                raise DownloadError("Clip times must be finite nonnegative numbers.")
+            start = _milliseconds(clip.get("start_seconds"), "Clip times must be finite nonnegative numbers.")
+            end = _milliseconds(clip.get("end_seconds"), "Clip times must be finite nonnegative numbers.")
             if end <= start or (duration is not None and end > duration):
                 raise DownloadError("Clip boundaries are outside the video duration or out of order.")
             text(clip.get("note"), "Clip note", 20000)
@@ -517,9 +527,9 @@ def validate_export(data):
                     for option in options:
                         obj(option, "Option")
                         identifier(option.get("id"))
-                        option_ids.append(option["id"])
+                        option_ids.append(option["id"].lower())
                         text(option.get("text"), "Option", 5000)
-                    if "correct_option_id" not in question or (question["correct_option_id"] is not None and question["correct_option_id"] not in option_ids):
+                    if "correct_option_id" not in question or (question["correct_option_id"] is not None and str(question["correct_option_id"]).lower() not in option_ids):
                         raise DownloadError("Correct answer must reference an existing option.")
                     taxonomy = {
                         "audio": ("speech_content", "vocalization", "prosody", "environmental_sounds"),
@@ -550,10 +560,10 @@ def validate_export(data):
                             raise DownloadError("Evidence spans must be a list of at most 20 spans.")
                         for span in spans:
                             obj(span, "Evidence span")
-                            a, b = span.get("start_seconds"), span.get("end_seconds")
-                            if any(isinstance(value, bool) or not isinstance(value, (int, float))
-                                   or not math.isfinite(value) for value in (a, b)) or not start <= a < b <= end:
-                                raise DownloadError("Evidence spans must be ordered and lie within their clip.")
+                            message = "Evidence spans must be ordered and lie within their clip."
+                            a, b = _milliseconds(span.get("start_seconds"), message), _milliseconds(span.get("end_seconds"), message)
+                            if not start <= a < b <= end:
+                                raise DownloadError(message)
                     if question["status"] == "ready" and (not question["prompt"].strip() or len(options) < 2
                             or any(not option["text"].strip() for option in options)
                             or question["correct_option_id"] is None or not modalities

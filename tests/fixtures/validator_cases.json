@@ -1,0 +1,112 @@
+{
+  "_comment": "Run through both validateProject (core.js) and validate_export (downloads.py). Each case applies set = [[path, value], ...] to a copy of base. {\"$repeat\": [text, count]} expands to a long string.",
+  "base": {
+    "schema_version": "1.4",
+    "project_id": "00000000-0000-4000-8000-000000000001",
+    "project_name": "Fixture",
+    "annotator": { "id": "", "name": "" },
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z",
+    "videos": [{
+      "id": "00000000-0000-4000-8000-000000000002",
+      "source": "youtube",
+      "video_id": "M7lc1UVf-VE",
+      "url": "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+      "title": "Fixture video",
+      "duration_seconds": 60,
+      "created_at": "2026-01-01T00:00:00.000Z",
+      "clips": [{
+        "id": "00000000-0000-4000-8000-000000000003",
+        "ref_id": "",
+        "start_seconds": 10,
+        "end_seconds": 14.25,
+        "note": "",
+        "tags": [],
+        "annotator": { "id": "", "name": "" },
+        "subtitle_status": "unknown",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "updated_at": "2026-01-01T00:00:00.000Z",
+        "questions": [{
+          "id": "00000000-0000-4000-8000-000000000004",
+          "prompt": "",
+          "options": [
+            { "id": "00000000-0000-4000-8000-00000000000a", "text": "" },
+            { "id": "00000000-0000-4000-8000-00000000000b", "text": "" }
+          ],
+          "correct_option_id": null,
+          "required_modalities": ["visual"],
+          "evidence_cues": ["gesture"],
+          "annotations": [{
+            "id": "00000000-0000-4000-8000-000000000005",
+            "cue": "gesture",
+            "content": "x",
+            "spans": [{ "start_seconds": 11, "end_seconds": 12 }],
+            "function": ""
+          }],
+          "rationale": "",
+          "status": "draft",
+          "created_at": "2026-01-01T00:00:00.000Z",
+          "updated_at": "2026-01-01T00:00:00.000Z"
+        }]
+      }]
+    }]
+  },
+  "aliases": {
+    "clip_start": ["videos", 0, "clips", 0, "start_seconds"],
+    "clip_end": ["videos", 0, "clips", 0, "end_seconds"],
+    "duration": ["videos", 0, "duration_seconds"],
+    "span_start": ["videos", 0, "clips", 0, "questions", 0, "annotations", 0, "spans", 0, "start_seconds"],
+    "span_end": ["videos", 0, "clips", 0, "questions", 0, "annotations", 0, "spans", 0, "end_seconds"],
+    "content": ["videos", 0, "clips", 0, "questions", 0, "annotations", 0, "content"],
+    "function": ["videos", 0, "clips", 0, "questions", 0, "annotations", 0, "function"],
+    "note": ["videos", 0, "clips", 0, "note"],
+    "project_id": ["project_id"],
+    "video_record_id": ["videos", 0, "id"],
+    "correct_option_id": ["videos", 0, "clips", 0, "questions", 0, "correct_option_id"]
+  },
+  "cases": [
+    { "name": "unmodified base", "valid": true, "set": [] },
+
+    { "name": "span collapses when rounded to milliseconds", "valid": false, "set": [["clip_start", 10], ["span_start", 10.0001], ["span_end", 10.0002]] },
+    { "name": "span start just below the clip rounds onto it", "valid": true, "set": [["span_start", 9.9996]] },
+    { "name": "span start a millisecond below the clip", "valid": false, "set": [["span_start", 9.9994]] },
+    { "name": "span end just past the clip rounds onto it", "valid": true, "set": [["span_end", 14.2504]] },
+    { "name": "float noise past the clip end", "valid": true, "set": [["span_end", 14.2500001]] },
+    { "name": "span end a millisecond past the clip", "valid": false, "set": [["span_end", 14.2506]] },
+    { "name": "half millisecond rounds up as Math.round does (span start reaches clip start)", "valid": true, "set": [["clip_start", 1.001], ["clip_end", 5], ["span_start", 1.0005], ["span_end", 2]] },
+    { "name": "half millisecond rounds up as Math.round does (span collapses)", "valid": false, "set": [["clip_start", 1], ["clip_end", 5], ["span_start", 1.0005], ["span_end", 1.001]] },
+    { "name": "clip collapses when rounded to milliseconds", "valid": false, "set": [["clip_start", 10.0001], ["clip_end", 10.0002], ["span_start", 10.0001], ["span_end", 10.0002]] },
+    { "name": "clip end just past the duration rounds onto it", "valid": true, "set": [["clip_start", 59], ["clip_end", 60.0004], ["span_start", 59], ["span_end", 60]] },
+    { "name": "clip end a millisecond past the duration", "valid": false, "set": [["clip_start", 59], ["clip_end", 60.0006], ["span_start", 59], ["span_end", 60]] },
+    { "name": "duration rounds to zero", "valid": false, "set": [["duration", 0.0004], ["clip_start", 0], ["clip_end", 0.0004], ["span_start", 0], ["span_end", 0.0004]] },
+    { "name": "duration of half a millisecond rounds up", "valid": true, "set": [["duration", 0.0005], ["clip_start", 0], ["clip_end", 0.0005], ["span_start", 0], ["span_end", 0.0005]] },
+    { "name": "largest allowed time", "valid": true, "set": [["duration", null], ["clip_end", 9007199254740.99], ["span_end", 9007199254740.99]] },
+    { "name": "time beyond the largest allowed", "valid": false, "set": [["duration", null], ["clip_end", 9007199254740.992], ["span_end", 12]] },
+    { "name": "infinite span time", "valid": false, "set": [["span_end", 1e400]] },
+    { "name": "boolean span time", "valid": false, "set": [["span_end", true]] },
+    { "name": "string span time", "valid": false, "set": [["span_end", "12"]] },
+    { "name": "negative clip start", "valid": false, "set": [["clip_start", -1]] },
+
+    { "name": "content at the limit in BMP text", "valid": true, "set": [["content", { "$repeat": ["a", 5000] }]] },
+    { "name": "content over the limit in BMP text", "valid": false, "set": [["content", { "$repeat": ["a", 5001] }]] },
+    { "name": "content at the limit in emoji", "valid": true, "set": [["content", { "$repeat": ["😀", 2500] }]] },
+    { "name": "content one emoji over the limit", "valid": false, "set": [["content", { "$repeat": ["😀", 2501] }]] },
+    { "name": "3000 emoji fit by character count but not by code unit", "valid": false, "set": [["content", { "$repeat": ["😀", 3000] }]] },
+    { "name": "lone surrogates at the limit", "valid": true, "set": [["content", { "$repeat": ["\ud83d", 5000] }]] },
+    { "name": "lone surrogates over the limit", "valid": false, "set": [["content", { "$repeat": ["\ud83d", 5001] }]] },
+    { "name": "function at the limit in emoji", "valid": true, "set": [["function", { "$repeat": ["😀", 1000] }]] },
+    { "name": "function one emoji over the limit", "valid": false, "set": [["function", { "$repeat": ["😀", 1001] }]] },
+    { "name": "note over the limit in emoji", "valid": false, "set": [["note", { "$repeat": ["😀", 10001] }]] },
+
+    { "name": "uppercase hyphenated UUID", "valid": true, "set": [["project_id", "ABCDEF00-0000-4000-8000-000000000001"]] },
+    { "name": "compact UUID", "valid": false, "set": [["project_id", "00000000000040008000000000000001"]] },
+    { "name": "URN UUID", "valid": false, "set": [["project_id", "urn:uuid:00000000-0000-4000-8000-000000000001"]] },
+    { "name": "braced UUID", "valid": false, "set": [["project_id", "{00000000-0000-4000-8000-000000000001}"]] },
+    { "name": "misplaced UUID hyphens", "valid": false, "set": [["project_id", "0000000-00000-4000-8000-000000000001"]] },
+    { "name": "UUID with trailing newline", "valid": false, "set": [["project_id", "00000000-0000-4000-8000-000000000001\n"]] },
+    { "name": "UUID with fullwidth digits", "valid": false, "set": [["project_id", "００００００００-0000-4000-8000-000000000001"]] },
+    { "name": "numeric UUID", "valid": false, "set": [["project_id", 1]] },
+    { "name": "IDs differing only by case are duplicates", "valid": false, "set": [["project_id", "ABCDEF00-0000-4000-8000-000000000001"], ["video_record_id", "abcdef00-0000-4000-8000-000000000001"]] },
+    { "name": "correct answer matches an option ID case-insensitively", "valid": true, "set": [["correct_option_id", "00000000-0000-4000-8000-00000000000A"]] }
+  ]
+}

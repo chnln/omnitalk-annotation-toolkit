@@ -1,8 +1,36 @@
 import copy
+import json
+from pathlib import Path
 import unittest
 from uuid import uuid4
 from annotation_toolkit.downloads import validate_export, DownloadError
 from test_downloads import project_fixture
+
+VALIDATOR_CASES = json.loads((Path(__file__).parent / 'fixtures' / 'validator_cases.json').read_text(encoding='utf-8'))
+
+
+def apply_validator_case(case):
+    project = copy.deepcopy(VALIDATOR_CASES['base'])
+    for alias, value in case['set']:
+        *parents, last = VALIDATOR_CASES['aliases'][alias]
+        target = project
+        for key in parents:
+            target = target[key]
+        target[last] = value['$repeat'][0] * value['$repeat'][1] if isinstance(value, dict) else value
+    return project
+
+
+class ValidatorParityTests(unittest.TestCase):
+    def test_shared_fixtures_match_the_browser_validator(self):
+        for case in VALIDATOR_CASES['cases']:
+            with self.subTest(case['name']):
+                project = apply_validator_case(case)
+                if case['valid']:
+                    self.assertIs(validate_export(project), project)
+                else:
+                    with self.assertRaises(DownloadError):
+                        validate_export(project)
+
 
 class QuestionExportTests(unittest.TestCase):
     def fixture(self):
