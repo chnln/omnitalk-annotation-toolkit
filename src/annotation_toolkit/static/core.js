@@ -275,8 +275,18 @@ export function spansOutside(clip, start, end) {
 export function formatAnnotation(question, clip, { clipTime = false } = {}) {
   const offset = clipTime ? clip.start_seconds : 0;
   const label = (cue) => TEAM_CUE_LABELS[cue] ?? cue;
-  // Whole seconds, widened outward so a short span never collapses to "00:10 ~ 00:10".
-  const span = (s) => `[time_span: ${formatTime(Math.floor(Math.max(0, s.start_seconds - offset) + 1e-6))} ~ ${formatTime(Math.ceil(Math.max(0, s.end_seconds - offset) - 1e-6))}]`;
+  const lowest = Math.ceil(Math.max(0, clip.start_seconds - offset) - 1e-6);
+  const highest = Math.floor(Math.max(0, clip.end_seconds - offset) + 1e-6);
+  // Whole seconds, widened outward so a short span never collapses to "00:10 ~ 00:10", but kept inside the clip.
+  const span = (s) => {
+    let from = Math.floor(Math.max(0, s.start_seconds - offset) + 1e-6);
+    let to = Math.ceil(Math.max(0, s.end_seconds - offset) - 1e-6);
+    if (lowest < highest) { // otherwise no whole-second interval fits in the clip, so the widened one is the only nonempty text
+      from = Math.max(lowest, from); to = Math.min(highest, to);
+      if (to <= from) { to = Math.min(highest, from + 1); from = Math.max(lowest, to - 1); }
+    }
+    return `[time_span: ${formatTime(from)} ~ ${formatTime(to)}]`;
+  };
   const lines = ["Annotation:", ...question.annotations.map(e => `(${label(e.cue)}): ${e.content.trim()}${e.spans.length ? ` ${e.spans.map(span).join(" & ")}` : ""}`)];
   const functions = question.annotations.filter(e => e.function.trim());
   if (functions.length) lines.push("Function of non-speech content to communication:", ...functions.map(e => `(${label(e.cue)}) ${e.function.trim()}`));

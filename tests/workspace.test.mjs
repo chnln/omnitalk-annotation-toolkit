@@ -1014,3 +1014,144 @@ test("a playhead within half a millisecond of the clip end adds no empty span (i
   await button("+ Add time span").click();
   assert.deepEqual(plain(q().annotations[0].spans), [{ start_seconds: 10, end_seconds: 40 }], "falls back to the whole clip");
 });
+
+/** A saved 10-40 s clip with one question open in the QA editor. */
+async function evidenceEditor({ ready = true } = {}) {
+  const w = workspace();
+  w.api.addVideo("M7lc1UVf-VE");
+  if (ready) { w.resolveAPI(); await w.flush(); w.instances.at(-1).ready(); }
+  w.fill("10", "40", "clip"); w.api.saveClip();
+  await w.node("qa-add").click();
+  const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
+  const all = () => descendants(w.node("qa-editor"));
+  const labelled = (label) => all().find((n) => n.attributes["aria-label"] === label);
+  const button = (text) => all().find((n) => n.tagName === "BUTTON" && n.textContent === text);
+  const q = () => w.api.state().project.videos[0].clips[0].questions[0];
+  const span = (j = 0) => JSON.parse(JSON.stringify(q().annotations[0].spans[j]));
+  const type = (label, value) => { labelled(label).value = value; return labelled(label).fire("change"); };
+  await button("+ Add evidence").click();
+  if (!q().annotations[0].spans.length) await button("+ Add time span").click();
+  return { w, all, labelled, button, q, span, type };
+}
+
+test("evidence Play buttons follow player readiness without rebuilding the editor (issue #18)", async () => {
+  const { w, labelled } = await evidenceEditor({ ready: false });
+  const play = labelled("Play evidence 1 span 1");
+  assert.equal(play.disabled, true, "the editor rendered while YouTube was still connecting");
+  w.resolveAPI(); await w.flush(); w.instances.at(-1).ready();
+  assert.equal(labelled("Play evidence 1 span 1"), play, "the editor is not rebuilt");
+  assert.equal(play.disabled, false, "delayed readiness enables Play");
+  w.instances.at(-1).fail();
+  assert.equal(play.disabled, true, "a player failure disables Play");
+  await w.node("retry-player").fire("click"); await w.flush();
+  assert.equal(play.disabled, true, "still disabled while retrying");
+  w.instances.at(-1).ready();
+  assert.equal(play.disabled, false, "a successful retry enables Play");
+});
+
+test("a refused span time shows the stored value again and keeps the error (issue #17)", async () => {
+  const { all, labelled, q, span, type } = await evidenceEditor();
+  await type("Evidence 1 span 1 start", "00:12"); await type("Evidence 1 span 1 end", "00:14");
+  assert.deepEqual(span(), { start_seconds: 12, end_seconds: 14 });
+  const errorText = () => all().find((n) => n.attributes.role === "alert" && n.className === "field-error" && !n.hidden && n.textContent)?.textContent;
+  for (const [label, value, stored, message] of [
+    ["Evidence 1 span 1 end", "00:05", "00:14.000", /must end after it starts/],
+    ["Evidence 1 span 1 end", "00:41", "00:14.000", /within the clip/],
+    ["Evidence 1 span 1 start", "00:05", "00:12.000", /within the clip/],
+    ["Evidence 1 span 1 start", "00:40", "00:12.000", /within the clip/],
+    ["Evidence 1 span 1 start", "00:55", "00:12.000", /within the clip/],
+    ["Evidence 1 span 1 end", "not a time", "00:14.000", /Use seconds/],
+  ]) {
+    await type(label, value);
+    assert.equal(labelled(label).value, stored, `${value} is replaced by the stored time`);
+    assert.match(errorText() ?? "", message);
+    assert.deepEqual(span(), { start_seconds: 12, end_seconds: 14 }, `${value} is not saved`);
+  }
+  assert.equal(q().status, "draft");
+});
+
+test("moving a span's start past its end carries the end along within the clip (issue #17)", async () => {
+  const { w, labelled, span, type, all } = await evidenceEditor();
+  await type("Evidence 1 span 1 start", "00:12"); await type("Evidence 1 span 1 end", "00:14.5");
+  await type("Evidence 1 span 1 start", "00:30");
+  assert.deepEqual(span(), { start_seconds: 30, end_seconds: 32.5 }, "the 2.5 s length is kept");
+  assert.equal(labelled("Evidence 1 span 1 end").value, "00:32.500", "the moved end is shown");
+  await type("Evidence 1 span 1 start", "00:32.5");
+  assert.deepEqual(span(), { start_seconds: 32.5, end_seconds: 35 }, "a start equal to the end also moves the span");
+  await type("Evidence 1 span 1 start", "00:39");
+  assert.deepEqual(span(), { start_seconds: 39, end_seconds: 40 }, "the end is clamped to the clip");
+  await type("Evidence 1 span 1 start", "00:20");
+  assert.deepEqual(span(), { start_seconds: 20, end_seconds: 40 }, "a start before the end changes only the start");
+  await type("Evidence 1 span 1 end", "00:22");
+  w.instances.at(-1).time = 35;
+  await all().filter((n) => n.tagName === "BUTTON" && n.textContent === "Start = now")[0].click();
+  assert.deepEqual(span(), { start_seconds: 35, end_seconds: 37 }, "Start = now moves the span the same way");
+});
+
+test("span time edits keep the editor's controls in place (issue #16; events are fired individually, not a real Tab or click)", async () => {
+  const { w, all, labelled, button, q, span, type } = await evidenceEditor();
+  const attached = (node) => w.node("qa-editor").contains(node);
+  const startInput = labelled("Evidence 1 span 1 start");
+  const endInput = labelled("Evidence 1 span 1 end");
+  const remove = labelled("Remove evidence 1 span 1");
+  const markReady = button("Mark Ready");
+  const listButton = w.node("qa-list").children[0];
+  endInput.focus(); // where a Tab from the start field lands
+  await type("Evidence 1 span 1 start", "00:12");
+  assert.deepEqual(span().start_seconds, 12);
+  assert.equal(w.document.activeElement, endInput, "focus is not disturbed");
+  for (const node of [startInput, endInput, remove, markReady]) assert.ok(attached(node), "the control stays attached");
+  assert.equal(labelled("Evidence 1 span 1 start"), startInput);
+  assert.equal(startInput.value, "00:12.000", "the field shows the normalised time");
+  assert.equal(w.node("qa-list").children[0], listButton, "the question list is not rebuilt while the status is unchanged");
+  assert.match(all().find((n) => n.className === "qa-span-relative").textContent, /^clip 00:02/, "the clip-relative label follows the edit");
+
+  await type("Evidence 1 span 1 end", "00:05");
+  assert.equal(all().find((n) => n.attributes.role === "alert" && n.className === "field-error").hidden, false);
+  await type("Evidence 1 span 1 end", "00:15");
+  assert.equal(all().find((n) => n.attributes.role === "alert" && n.className === "field-error").hidden, true, "an accepted edit clears the earlier error");
+  assert.equal(q().status, "draft");
+});
+
+test("a span edit on a Ready question still returns it to Draft in the list (issue #16)", async () => {
+  const { w, button, labelled, q, type } = await evidenceEditor();
+  Object.assign(q(), { prompt: "Q" });
+  q().options.forEach((o, i) => { o.text = `Option ${i}`; }); q().correct_option_id = q().options[0].id;
+  labelled("Evidence 1 content").value = "x"; await labelled("Evidence 1 content").fire("input");
+  await button("Mark Ready").click();
+  assert.equal(q().status, "ready");
+  assert.equal(w.node("qa-list").children[0].children[0].textContent, "Q1 · Ready");
+  await type("Evidence 1 span 1 start", "00:12");
+  assert.equal(q().status, "draft");
+  assert.equal(w.node("qa-list").children[0].children[0].textContent, "Q1 · Draft");
+  assert.match(w.node("qa-state").textContent, /^Draft/);
+});
+
+test("focus returns to the equivalent evidence control after a rebuild (issue #16)", async () => {
+  const { w, labelled, button, q } = await evidenceEditor();
+  const focused = (node) => { assert.equal(w.document.activeElement, node); assert.ok(w.node("qa-editor").contains(node)); };
+
+  const cue = labelled("Evidence 1 cue");
+  cue.focus(); cue.value = "gesture"; await cue.fire("change");
+  assert.notEqual(labelled("Evidence 1 cue"), cue, "the cue change rebuilds the editor");
+  focused(labelled("Evidence 1 cue"));
+
+  const addSpan = button("+ Add time span");
+  addSpan.focus(); await addSpan.click();
+  assert.equal(q().annotations[0].spans.length, 2);
+  focused(button("+ Add time span"));
+
+  const addEvidence = button("+ Add evidence");
+  addEvidence.focus(); await addEvidence.click();
+  focused(button("+ Add evidence"));
+  assert.equal(q().annotations.length, 2);
+
+  const removeSpan = labelled("Remove evidence 1 span 2");
+  removeSpan.focus(); await removeSpan.click();
+  assert.equal(w.document.activeElement.textContent, "+ Add time span", "removing a span moves focus to that line's Add button");
+  assert.ok(w.node("qa-editor").contains(w.document.activeElement));
+
+  const removeLine = labelled("Remove evidence 2");
+  removeLine.focus(); await removeLine.click();
+  focused(button("+ Add evidence"));
+});

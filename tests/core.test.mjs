@@ -1,9 +1,54 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createProject, createVideo, createClip, parseYouTubeUrl, parseTime, formatTime, validateProject } from "../src/annotation_toolkit/static/core.js";
 
 const ID = "M7lc1UVf-VE";
 const canonical = `https://www.youtube.com/watch?v=${ID}`;
+
+test("shared validator fixtures: core.js agrees with validate_export in downloads.py", () => {
+  const { base, aliases, cases } = JSON.parse(readFileSync(new URL("./fixtures/validator_cases.json", import.meta.url), "utf8"));
+  for (const { name, valid, set } of cases) {
+    const project = structuredClone(base);
+    for (const [alias, value] of set) {
+      const path = aliases[alias];
+      const target = path.slice(0, -1).reduce((node, key) => node[key], project);
+      target[path.at(-1)] = value?.$repeat ? value.$repeat[0].repeat(value.$repeat[1]) : value;
+    }
+    if (valid) assert.doesNotThrow(() => validateProject(project), name);
+    else assert.throws(() => validateProject(project), Error, name);
+  }
+});
+
+test("team text keeps whole seconds inside fractional clip boundaries and converts back (issue #20)", async () => {
+  const { createQuestion, createEvidence, formatAnnotation } = await import("../src/annotation_toolkit/static/core.js");
+  const render = (start, end, spanStart, spanEnd, clipTime) => {
+    const q = createQuestion();
+    const e = createEvidence("gesture", { start_seconds: spanStart, end_seconds: spanEnd });
+    e.content = "x"; q.annotations = [e];
+    return /time_span: (\S+) ~ (\S+)\]/.exec(formatAnnotation(q, { start_seconds: start, end_seconds: end }, { clipTime })).slice(1);
+  };
+  assert.deepEqual(render(10, 14.25, 10, 14.25, true), ["00:00", "00:04"], "the end stays within a clip of 4.25 s");
+  assert.deepEqual(render(10, 14.25, 10, 14.25, false), ["00:10", "00:14"]);
+  assert.deepEqual(render(10.5, 14.25, 10.5, 12, false), ["00:11", "00:12"], "the start stays within the clip");
+  assert.deepEqual(render(10, 40, 12.2, 12.8, false), ["00:12", "00:13"], "whole-second clips still widen outward");
+  assert.deepEqual(render(10, 14.25, 14.1, 14.2, false), ["00:13", "00:14"], "a span in the fractional tail stays nonempty and inside");
+  assert.deepEqual(render(10.5, 14.25, 10.5, 10.9, false), ["00:11", "00:12"], "a span in the fractional head stays nonempty and inside");
+  assert.deepEqual(render(0, 0.5, 0.1, 0.4, true), ["00:00", "00:01"], "a clip holding no whole-second interval keeps the widened text");
+
+  for (const [start, end, spanStart, spanEnd, clipTime] of [[10, 14.25, 10, 14.25, true], [10, 14.25, 10, 14.25, false], [10.5, 14.25, 10.5, 12, false], [10.5, 14.25, 10.5, 12, true], [10, 14.25, 14.1, 14.2, true], [10.5, 14.75, 13.9, 14.75, true]]) {
+    const [from, to] = render(start, end, spanStart, spanEnd, clipTime).map(parseTime);
+    const offset = clipTime ? start : 0;
+    const q = createQuestion();
+    q.required_modalities = ["visual"]; q.evidence_cues = ["gesture"];
+    q.annotations = [{ ...createEvidence("gesture"), spans: [{ start_seconds: from + offset, end_seconds: to + offset }] }];
+    const project = createProject();
+    const video = createVideo(parseYouTubeUrl(ID));
+    const clip = createClip({ start_seconds: start, end_seconds: end });
+    clip.questions = [q]; video.clips = [clip]; project.videos = [video];
+    assert.doesNotThrow(() => validateProject(project), `${start}-${end} clipTime=${clipTime}`);
+  }
+});
 
 test("common YouTube forms preserve video identity and parse starting times", () => {
   for (const input of [ID, canonical, `http://m.youtube.com/watch?v=${ID}`, `youtube.com/watch?v=${ID}`, `https://youtu.be/${ID}`, `https://www.youtube.com/shorts/${ID}`, `https://youtube.com/embed/${ID}`, `https://www.youtube-nocookie.com/embed/${ID}`, `https://youtube.com/live/${ID}`]) {
