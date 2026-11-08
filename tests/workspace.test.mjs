@@ -1048,3 +1048,42 @@ test("evidence Play buttons follow player readiness without rebuilding the edito
   w.instances.at(-1).ready();
   assert.equal(play.disabled, false, "a successful retry enables Play");
 });
+
+test("a refused span time shows the stored value again and keeps the error (issue #17)", async () => {
+  const { all, labelled, q, span, type } = await evidenceEditor();
+  await type("Evidence 1 span 1 start", "00:12"); await type("Evidence 1 span 1 end", "00:14");
+  assert.deepEqual(span(), { start_seconds: 12, end_seconds: 14 });
+  const errorText = () => all().find((n) => n.attributes.role === "alert" && n.className === "field-error" && !n.hidden && n.textContent)?.textContent;
+  for (const [label, value, stored, message] of [
+    ["Evidence 1 span 1 end", "00:05", "00:14.000", /must end after it starts/],
+    ["Evidence 1 span 1 end", "00:41", "00:14.000", /within the clip/],
+    ["Evidence 1 span 1 start", "00:05", "00:12.000", /within the clip/],
+    ["Evidence 1 span 1 start", "00:40", "00:12.000", /within the clip/],
+    ["Evidence 1 span 1 start", "00:55", "00:12.000", /within the clip/],
+    ["Evidence 1 span 1 end", "not a time", "00:14.000", /Use seconds/],
+  ]) {
+    await type(label, value);
+    assert.equal(labelled(label).value, stored, `${value} is replaced by the stored time`);
+    assert.match(errorText() ?? "", message);
+    assert.deepEqual(span(), { start_seconds: 12, end_seconds: 14 }, `${value} is not saved`);
+  }
+  assert.equal(q().status, "draft");
+});
+
+test("moving a span's start past its end carries the end along within the clip (issue #17)", async () => {
+  const { w, labelled, span, type, all } = await evidenceEditor();
+  await type("Evidence 1 span 1 start", "00:12"); await type("Evidence 1 span 1 end", "00:14.5");
+  await type("Evidence 1 span 1 start", "00:30");
+  assert.deepEqual(span(), { start_seconds: 30, end_seconds: 32.5 }, "the 2.5 s length is kept");
+  assert.equal(labelled("Evidence 1 span 1 end").value, "00:32.500", "the moved end is shown");
+  await type("Evidence 1 span 1 start", "00:32.5");
+  assert.deepEqual(span(), { start_seconds: 32.5, end_seconds: 35 }, "a start equal to the end also moves the span");
+  await type("Evidence 1 span 1 start", "00:39");
+  assert.deepEqual(span(), { start_seconds: 39, end_seconds: 40 }, "the end is clamped to the clip");
+  await type("Evidence 1 span 1 start", "00:20");
+  assert.deepEqual(span(), { start_seconds: 20, end_seconds: 40 }, "a start before the end changes only the start");
+  await type("Evidence 1 span 1 end", "00:22");
+  w.instances.at(-1).time = 35;
+  await all().filter((n) => n.tagName === "BUTTON" && n.textContent === "Start = now")[0].click();
+  assert.deepEqual(span(), { start_seconds: 35, end_seconds: 37 }, "Start = now moves the span the same way");
+});

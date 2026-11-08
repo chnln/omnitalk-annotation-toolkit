@@ -1147,18 +1147,22 @@ function renderEvidenceEditor(q, clip) {
     card.append(top, content);
     for (const [j, span] of e.spans.entries()) {
       const row = el("div", "qa-span");
+      // A refused edit puts the stored times back, so the fields never show a value that was not saved.
+      const reject = (message) => { inputs[0].value = clock(span.start_seconds); inputs[1].value = clock(span.end_seconds); fail(message); };
       const setSpan = (key, value) => {
         const next = { ...span, [key]: value };
-        if (next.end_seconds <= next.start_seconds) return fail("A span must end after it starts.");
-        if (next.start_seconds < clip.start_seconds || next.end_seconds > clip.end_seconds) return fail(`Spans must lie within the clip (${clock(clip.start_seconds)} – ${clock(clip.end_seconds)}).`);
-        span[key] = value; qaSave(q); renderQAEditor();
+        // Moving the start past the end carries the end along, keeping the span's length as far as the clip allows.
+        if (key === "start_seconds" && value >= span.end_seconds) next.end_seconds = parseTime(Math.min(clip.end_seconds, value + span.end_seconds - span.start_seconds));
+        if (next.start_seconds >= clip.end_seconds || next.start_seconds < clip.start_seconds || next.end_seconds > clip.end_seconds) return reject(`Spans must lie within the clip (${clock(clip.start_seconds)} – ${clock(clip.end_seconds)}).`);
+        if (next.end_seconds <= next.start_seconds) return reject("A span must end after it starts.");
+        Object.assign(span, next); qaSave(q); renderQAEditor();
       };
       const inputs = ["start_seconds", "end_seconds"].map((key) => {
         const input = el("input", "time-input qa-span-time"); input.value = clock(span[key]);
         input.setAttribute("aria-label", `Evidence ${i + 1} span ${j + 1} ${key === "start_seconds" ? "start" : "end"}`);
         input.addEventListener("change", () => {
           let value;
-          try { value = parseTime(input.value); } catch (err) { return fail(err.message); }
+          try { value = parseTime(input.value); } catch (err) { return reject(err.message); }
           setSpan(key, value);
         });
         return input;
