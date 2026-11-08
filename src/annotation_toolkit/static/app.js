@@ -1111,6 +1111,7 @@ function playheadSpan(clip) {
   const now = playerReady ? player.getCurrentTime?.() : NaN;
   if (!Number.isFinite(now) || now < clip.start_seconds || now >= clip.end_seconds) return null;
   const start = Math.round(now * 1000) / 1000;
+  if (start >= clip.end_seconds) return null; // rounding reached the clip end: a span here would be empty
   return { start_seconds: start, end_seconds: Math.min(clip.end_seconds, start + 2) };
 }
 function renderEvidenceEditor(q, clip) {

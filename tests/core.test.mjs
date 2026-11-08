@@ -325,4 +325,5 @@ test("1.4 questions carry time-spanned evidence; 1.3 migrates with none; spans s
     assert.throws(() => validateProject(broken), Error, mutate.toString());
   }
   assert.throws(() => createEvidence("smell"), /Unknown evidence cue/);
+  assert.throws(() => createEvidence("gesture", { start_seconds: 40, end_seconds: 40 }), /Span end must be after its start/);
 });

@@ -261,7 +261,9 @@ export const cueModality = (cue) => ALL_CUES[cue] ?? null;
 /** One evidence line: a cue, what was said or seen, when (source-video seconds), and its communicative function. */
 export function createEvidence(cue, span = null) {
   if (!cueModality(cue)) throw new Error("Unknown evidence cue.");
-  return { id: uuid(), cue, content: "", spans: span ? [{ start_seconds: seconds(span.start_seconds, "Span start"), end_seconds: seconds(span.end_seconds, "Span end") }] : [], function: "" };
+  const spans = span ? [{ start_seconds: seconds(span.start_seconds, "Span start"), end_seconds: seconds(span.end_seconds, "Span end") }] : [];
+  if (spans.some(s => s.end_seconds <= s.start_seconds)) throw new Error("Span end must be after its start.");
+  return { id: uuid(), cue, content: "", spans, function: "" };
 }
 
 /** Evidence spans of a clip's questions that would fall outside a new clip range. */

@@ -997,3 +997,20 @@ test("evidence lines take a cue, content, playhead or typed spans, guard their c
   await labelled("Remove evidence 1").click();
   assert.deepEqual(plain(q().annotations), []);
 });
+
+test("a playhead within half a millisecond of the clip end adds no empty span (issue #15)", async () => {
+  const w = workspace();
+  w.api.addVideo("M7lc1UVf-VE"); w.resolveAPI(); await w.flush(); w.instances.at(-1).ready();
+  w.fill("10", "40", "clip"); w.api.saveClip();
+  await w.node("qa-add").click();
+  const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
+  const button = (text) => descendants(w.node("qa-editor")).find((n) => n.tagName === "BUTTON" && n.textContent === text);
+  const q = () => w.api.state().project.videos[0].clips[0].questions[0];
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+
+  w.instances.at(-1).time = 39.9996;
+  await button("+ Add evidence").click();
+  assert.deepEqual(plain(q().annotations[0].spans), [], "the line starts without a span");
+  await button("+ Add time span").click();
+  assert.deepEqual(plain(q().annotations[0].spans), [{ start_seconds: 10, end_seconds: 40 }], "falls back to the whole clip");
+});
