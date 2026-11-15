@@ -1039,7 +1039,12 @@ test("evidence lines take a cue, content, playhead or typed spans, guard their c
   assert.equal(q().status, "ready");
   labelled("Time base for copied annotation").value = "clip"; await labelled("Time base for copied annotation").fire("change");
   await button("Copy as team text").click();
-  assert.equal(w.clipboard[0], "Annotation:\n(gesture): Man points at the jar [time_span: 00:02 ~ 00:10] & [time_span: 00:20 ~ 00:23]\nFunction of non-speech content to communication:\n(gesture) identifies the referent");
+  assert.equal(w.clipboard[0], "Annotation:\n[00:02.346–00:10.000] [00:20.000–00:22.500] (gesture): Man points at the jar\nFunction of Non-Speech Content Modalities:\n(gesture): identifies the referent");
+  await button("Copy in time_span format").click();
+  assert.equal(w.clipboard[1], "Annotation:\n(gesture): Man points at the jar [time_span: 00:02 ~ 00:10] & [time_span: 00:20 ~ 00:23]\nFunction of non-speech content to communication:\n(gesture) identifies the referent");
+  labelled("Time base for copied annotation").value = "source"; await labelled("Time base for copied annotation").fire("change");
+  await button("Copy as team text").click();
+  assert.match(w.clipboard[2], /^Annotation:\n\[00:12\.346–00:20\.000\] \[00:30\.000–00:32\.500\] \(gesture\)/, "original-video time is the default base");
 
   const clip = w.api.state().project.videos[0].clips[0];
   await w.api.editClip(clip); w.fill("15", "40", "clip"); w.api.saveClip();

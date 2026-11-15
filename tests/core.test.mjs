@@ -437,3 +437,58 @@ test("1.4 files keep ref IDs and evidence; action_event and object_scene become 
   assert.deepEqual(fromExample.questions[0].annotations.map((e) => e.cue), ["speech_content", "action"]);
   assert.equal(fromExample.ref_id, "PILOT-01");
 });
+
+test("team text rows follow the Doc: temporal order, millisecond spans, numbered labels, Function and Scenario lines", async () => {
+  const { createQuestion, createEvidence, formatAnnotationRows, formatAnnotation, TEAM_ROW_LABELS, MODALITIES } = await import("../src/annotation_toolkit/static/core.js");
+  assert.deepEqual(Object.keys(TEAM_ROW_LABELS).sort(), Object.values(MODALITIES).flatMap((g) => Object.keys(g.cues)).sort(), "every cue has a row label");
+  const clip = createClip({ start_seconds: 912, end_seconds: 1029, scenarios: ["work_professional"] });
+  const line = (cue, spans, content, fn = "") => ({ ...createEvidence(cue), spans: spans.map(([a, b]) => ({ start_seconds: a, end_seconds: b })), content, function: fn });
+  const q = createQuestion();
+  q.annotations = [
+    line("speech_content", [[931, 939]], "The caller introduces himself as Angus Moon."),
+    line("action", [[926, 931]], "Rebecca Bond answers a phone call.", "Indicates the communication channel"),
+    line("action", [[1023, 1029]], "Gary approaches Rebecca.", "Indicates a person referent"),
+    line("action", [[1004.4, 1009.294]], "The man suppresses laughter.", ""),
+    line("speech_content", [[1016, 1029]], "“Do you know Gary Fenton?”", "ignored: speech has no Function line"),
+    line("gaze", [[1020.5, 1021], [1000, 1001.25]], "  He looks at the door.  ", " Indicates the addressee "),
+    line("vocalization", [], "laughter", "Triggers a humorous comment"),
+  ];
+  assert.equal(formatAnnotationRows(q, clip), [
+    "Annotation:",
+    "[15:26.000–15:31.000] (action 1): Rebecca Bond answers a phone call.",
+    "[15:31.000–15:39.000] (speech-content): The caller introduces himself as Angus Moon.",
+    "[16:40.000–16:41.250] [17:00.500–17:01.000] (gaze): He looks at the door.",
+    "[16:44.400–16:49.294] (action 2): The man suppresses laughter.",
+    "[16:56.000–17:09.000] (speech-content): “Do you know Gary Fenton?”",
+    "[17:03.000–17:09.000] (action 3): Gary approaches Rebecca.",
+    "(non-speech vocalization): laughter",
+    "Function of Non-Speech Content Modalities:",
+    "(action 1): Indicates the communication channel",
+    "(gaze): Indicates the addressee",
+    "(action 3): Indicates a person referent",
+    "(non-speech vocalization): Triggers a humorous comment",
+    "Scenario Category: Work & Professional Activities",
+  ].join("\n"));
+  assert.deepEqual(q.annotations.map((e) => e.cue), ["speech_content", "action", "action", "action", "speech_content", "gaze", "vocalization"], "rendering does not reorder the evidence");
+  assert.deepEqual(q.annotations[5].spans.map((s) => s.start_seconds), [1020.5, 1000], "or its spans");
+
+  const clipTime = formatAnnotationRows(q, clip, { clipTime: true }).split("\n");
+  assert.equal(clipTime[1], "[00:14.000–00:19.000] (action 1): Rebecca Bond answers a phone call.");
+  assert.equal(clipTime[4], "[01:32.400–01:37.294] (action 2): The man suppresses laughter.");
+
+  const long = createClip({ start_seconds: 3600.1, end_seconds: 3700, scenarios: ["food_dining", "everyday_problems"] });
+  const short = createQuestion();
+  short.annotations = [line("person_appearance", [[3600.1, 3601.0005]], ""), line("scene_text", [[3610, 3612]], "A note on the fridge", "Indicates the communication channel")];
+  assert.equal(formatAnnotationRows(short, long), [
+    "Annotation:",
+    "[01:00:00.100–01:00:01.001] (human-appearance):",
+    "[01:00:10.000–01:00:12.000] (written-content): A note on the fridge",
+    "Function of Non-Speech Content Modalities:",
+    "(written-content): Indicates the communication channel",
+    "Scenario Category: Food & Dining; Everyday Problems & Unexpected Situations",
+  ].join("\n"));
+  assert.equal(formatAnnotationRows(short, long, { clipTime: true }).split("\n")[1], "[00:00.000–00:00.901] (human-appearance):");
+  const bare = createQuestion(); bare.annotations = [line("speech_content", [[10, 11]], "Hi.", "")];
+  assert.equal(formatAnnotationRows(bare, { start_seconds: 0, end_seconds: 20 }), "Annotation:\n[00:10.000–00:11.000] (speech-content): Hi.", "no Function or Scenario line when there is nothing to say");
+  assert.match(formatAnnotation(q, clip), /^\(action\): Rebecca Bond answers a phone call\. \[time_span: 15:26 ~ 15:31\]$/m, "the time_span format is still available");
+});

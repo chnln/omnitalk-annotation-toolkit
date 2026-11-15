@@ -2,7 +2,7 @@ import {
   STORAGE_KEY, LIMITS, createProject, createVideo, createClip, createQuestion, questionReadyError, MODALITIES,
   parseYouTubeUrl, parseTime, formatTime, validateProject,
   projectAnnotators, filterVideos, QUESTION_STATUS_FILTERS, videoRefIds, refIdConflicts,
-  createEvidence, cueModality, formatAnnotation, spansOutside, SCENARIOS, NO_SCENARIO, CUE_HELP, FUNCTION_SUGGESTIONS,
+  createEvidence, cueModality, formatAnnotation, formatAnnotationRows, spansOutside, SCENARIOS, NO_SCENARIO, CUE_HELP, FUNCTION_SUGGESTIONS,
 } from "./core.js";
 import { initDownloads } from "./downloads.js";
 
@@ -1273,7 +1273,11 @@ function renderEvidenceEditor(q, clip) {
     for (const [value, label] of [["source", "Original video time"], ["clip", "Clip time (00:00 = clip start)"]]) { const o = el("option", "", label); o.value = value; base.append(o); }
     base.value = annotationClipTime ? "clip" : "source";
     base.addEventListener("change", () => { annotationClipTime = base.value === "clip"; });
-    tools.append(qaButton("Copy as team text", () => copyText(formatAnnotation(q, clip, { clipTime: annotationClipTime }))), base);
+    const rowsCopy = qaButton("Copy as team text", () => copyText(formatAnnotationRows(q, clip, { clipTime: annotationClipTime })));
+    rowsCopy.title = "Annotation rows as in the team Doc: [MM:SS.mmm–MM:SS.mmm] (label): description, then the Function and Scenario Category lines";
+    const spanCopy = qaButton("Copy in time_span format", () => copyText(formatAnnotation(q, clip, { clipTime: annotationClipTime })), "text-button");
+    spanCopy.title = "Older format: (label): description [time_span: MM:SS ~ MM:SS], in whole seconds";
+    tools.append(rowsCopy, base, spanCopy);
     box.append(tools);
   }
   return box;

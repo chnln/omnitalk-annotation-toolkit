@@ -340,7 +340,43 @@ export function spansOutside(clip, start, end) {
   return (clip.questions || []).flatMap(q => (q.annotations || []).flatMap(e => e.spans)).filter(s => s.start_seconds < start || s.end_seconds > end).length;
 }
 
-/** Render a question's evidence in the team document's Annotation format. */
+/** Cue names as written in the team Doc's Annotation rows (Data_Leixin): mostly hyphenated, lower case. */
+export const TEAM_ROW_LABELS = {
+  speech_content: "speech-content", prosody: "prosody", environmental_sounds: "environmental-sound",
+  voice_characteristics: "voice-characteristics", vocalization: "non-speech vocalization",
+  scene: "scene", action: "action", event: "event", gesture: "gesture", facial_expression: "facial-expression",
+  gaze: "gaze", person_appearance: "human-appearance", object: "object", subtitles: "subtitles", scene_text: "written-content",
+};
+
+/**
+ * Render a question's evidence as the team Doc's Annotation rows, "[MM:SS.mmm–MM:SS.mmm] (label): description":
+ * one row per evidence line in temporal order, its spans side by side, then a Function block for the non-speech
+ * lines that have one and the clip's Scenario Category. A non-speech label used on several lines is numbered
+ * ("action 1", "action 2") so each Function line names its row.
+ */
+export function formatAnnotationRows(question, clip, { clipTime = false } = {}) {
+  const offset = clipTime ? clip.start_seconds : 0;
+  const time = (value) => formatTime(Math.max(0, value - offset), { milliseconds: true });
+  const speech = (e) => e.cue === "speech_content";
+  const rows = question.annotations.map((e, index) => ({ e, index, spans: [...e.spans].sort((a, b) => a.start_seconds - b.start_seconds || a.end_seconds - b.end_seconds) }));
+  // Earliest span first; lines without spans keep their order at the end.
+  rows.sort((a, b) => (!a.spans.length - !b.spans.length) || (a.spans.length && (a.spans[0].start_seconds - b.spans[0].start_seconds || a.spans[0].end_seconds - b.spans[0].end_seconds)) || a.index - b.index);
+  const totals = {};
+  for (const { e } of rows) if (!speech(e)) totals[e.cue] = (totals[e.cue] || 0) + 1;
+  const seen = {};
+  for (const row of rows) {
+    const base = TEAM_ROW_LABELS[row.e.cue] ?? row.e.cue;
+    row.label = !speech(row.e) && totals[row.e.cue] > 1 ? `${base} ${seen[row.e.cue] = (seen[row.e.cue] || 0) + 1}` : base;
+  }
+  const lines = ["Annotation:", ...rows.map(({ e, spans, label }) => [...spans.map((s) => `[${time(s.start_seconds)}–${time(s.end_seconds)}]`), `(${label}):`, e.content.trim()].filter(Boolean).join(" "))];
+  const functions = rows.filter(({ e }) => !speech(e) && e.function.trim());
+  if (functions.length) lines.push("Function of Non-Speech Content Modalities:", ...functions.map(({ e, label }) => `(${label}): ${e.function.trim()}`));
+  const scenarios = (clip.scenarios || []).map((id) => SCENARIOS[id] ?? id);
+  if (scenarios.length) lines.push(`Scenario Category: ${scenarios.join("; ")}`);
+  return lines.join("\n");
+}
+
+/** Render a question's evidence in the older time_span format: "(label): description [time_span: MM:SS ~ MM:SS]". */
 export function formatAnnotation(question, clip, { clipTime = false } = {}) {
   const offset = clipTime ? clip.start_seconds : 0;
   const label = (cue) => TEAM_CUE_LABELS[cue] ?? cue;
