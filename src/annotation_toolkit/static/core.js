@@ -429,12 +429,19 @@ export function refIdConflicts(videos, ref, exceptClipId = null) {
   return videos.flatMap((video) => video.clips).filter((clip) => clip.id !== exceptClipId && clip.ref_id.toLocaleLowerCase() === needle);
 }
 
-/** Keep videos matching every active filter: title/YouTube ID/reference ID text, annotator key, and question status. */
-export function filterVideos(videos, { query = "", annotator = "", status = "" } = {}) {
+/** Library scenario filter value for videos with a clip that has no scenario category yet. */
+export const NO_SCENARIO = "none";
+
+/**
+ * Keep videos matching every active filter: title/YouTube ID/reference ID text, annotator key, question status,
+ * and scenario (a clip with that category, or NO_SCENARIO for a clip with none).
+ */
+export function filterVideos(videos, { query = "", annotator = "", status = "", scenario = "" } = {}) {
   const needle = query.trim().toLocaleLowerCase();
   return videos.filter((video) => {
     if (needle && !`${video.title} ${video.video_id} ${videoRefIds(video).join(" ")}`.toLocaleLowerCase().includes(needle)) return false;
     if (annotator && !video.clips.some((clip) => annotatorKey(clip.annotator) === annotator)) return false;
+    if (scenario && !video.clips.some((clip) => scenario === NO_SCENARIO ? !clip.scenarios.length : clip.scenarios.includes(scenario))) return false;
     const questions = video.clips.flatMap((clip) => clip.questions);
     if (status === "has-drafts") return questions.some((q) => q.status === "draft");
     if (status === "all-ready") return questions.length > 0 && questions.every((q) => q.status === "ready");

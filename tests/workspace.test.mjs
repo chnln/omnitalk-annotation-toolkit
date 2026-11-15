@@ -728,6 +728,64 @@ test("library filters narrow the video list without changing the project or the 
   assert.equal(w.api.state().project.videos.find((v) => v.id === w.api.state().activeId).video_id, "dQw4w9WgXcQ");
 });
 
+test("scenario categories are chosen in the clip form, survive drafts and edits, and show, search and filter clips", async () => {
+  const w = workspace();
+  w.api.addVideo("M7lc1UVf-VE");
+  const chips = () => w.node("clip-scenarios").children;
+  const chip = (label) => chips().find((c) => c.textContent === label);
+  const pressed = () => chips().filter((c) => c.attributes["aria-pressed"] === "true").map((c) => c.textContent);
+  const video = () => w.api.state().project.videos[0];
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  assert.equal(chips().length, 12);
+  assert.match(chip("Food & Dining").title, /cooking competitions/);
+  assert.match(html, /id="clip-scenarios-help">[^<]*avoid unnecessary labels[^<]*No suitable scenario label/);
+  await chip("Food & Dining").click(); await chip("Everyday Problems & Unexpected Situations").click();
+  assert.deepEqual(pressed(), ["Everyday Problems & Unexpected Situations", "Food & Dining"], "chips keep the Doc's order");
+  const restored = workspace([...w.storage]);
+  assert.deepEqual(restored.node("clip-scenarios").children.filter((c) => c.attributes["aria-pressed"] === "true").map((c) => c.dataset.scenario), ["everyday_problems", "food_dining"], "an unsaved selection is kept with the draft");
+  w.fill("0", "10", "dinner goes wrong", "", "R9-01"); w.api.saveClip();
+  assert.deepEqual(plain(video().clips[0].scenarios), ["everyday_problems", "food_dining"]);
+  assert.deepEqual(pressed(), [], "the form resets after saving");
+  w.fill("20", "30", "no label fits; describe it here"); w.api.saveClip();
+  assert.deepEqual(plain(video().clips[1].scenarios), [], "an empty selection is allowed");
+
+  const rows = w.node("clips-body").children;
+  assert.match(rows[0].textContent, /Everyday Problems & Unexpected SituationsFood & Dining/);
+  w.node("qa-clip-select").value = video().clips[0].id; await w.node("qa-clip-select").fire("change");
+  assert.match(w.node("qa-context").textContent, /^R9-01 · .* · Everyday Problems & Unexpected Situations; Food & Dining · 0 questions$/);
+  w.node("clips-search").value = "dining"; await w.node("clips-search").fire("input");
+  assert.equal(w.node("clips-body").children.length, 1);
+  w.node("clips-search").value = ""; await w.node("clips-search").fire("input");
+
+  await w.api.editClip(video().clips[0]);
+  assert.deepEqual(pressed(), ["Everyday Problems & Unexpected Situations", "Food & Dining"], "editing loads the clip's scenarios");
+  w.api.saveClip();
+  assert.deepEqual(plain(video().clips[0].scenarios), ["everyday_problems", "food_dining"], "saving an edit keeps them");
+  await w.api.editClip(video().clips[0]);
+  await chip("Food & Dining").click();
+  const pending = w.api.editClip(video().clips[1]);
+  assert.equal(w.node("confirm-dialog").open, true, "a changed scenario makes the edit unsaved");
+  await w.confirm(false); await pending;
+  w.api.saveClip();
+  assert.deepEqual(plain(video().clips[0].scenarios), ["everyday_problems"]);
+
+  w.api.addVideo("jNQXAC9IVRw"); w.fill("0", "5", "b"); w.api.saveClip();
+  const visibleIds = () => w.node("video-list").children.map((row) => row.dataset.videoId).filter(Boolean)
+    .map((id) => w.api.state().project.videos.find((v) => v.id === id).video_id);
+  assert.deepEqual(w.node("library-scenario").children.map((o) => o.value).slice(0, 2), ["", "social_personal"]);
+  w.node("library-scenario").value = "everyday_problems"; await w.node("library-scenario").fire("change");
+  assert.deepEqual(visibleIds(), ["M7lc1UVf-VE"]);
+  w.node("library-scenario").value = "none"; await w.node("library-scenario").fire("change");
+  assert.deepEqual(visibleIds(), ["M7lc1UVf-VE", "jNQXAC9IVRw"], "both videos have a clip without a scenario");
+  w.node("library-scenario").value = "food_dining"; await w.node("library-scenario").fire("change");
+  assert.deepEqual(visibleIds(), []);
+  await w.node("clear-library-filters").click();
+  assert.equal(w.node("library-scenario").value, "");
+  await w.api.exportProject();
+  assert.deepEqual(w.exports[0].videos[0].clips[0].scenarios, ["everyday_problems"]);
+  assert.deepEqual(core.validateProject(w.exports[0]).videos[1].clips[0].scenarios, []);
+});
+
 test("imported JSON files stay separate projects that a selector switches between and removes", async () => {
   const file = (name, project) => ({ name, size: 100, text: async () => JSON.stringify(project) });
   const make = (id, name) => { const h = workspace(); h.node("project-name").value = name; h.api.addVideo(id); h.fill("0", "5", id); h.api.saveClip(); return JSON.parse(JSON.stringify(h.api.state().project)); };

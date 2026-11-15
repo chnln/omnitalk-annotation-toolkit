@@ -112,3 +112,11 @@
 .ref-input { font-family:var(--mono) }
 .qa-clip-bar .ref-copy { font-family:var(--mono);font-weight:600;color:var(--green-dark);cursor:copy }
 #clips-table-container.has-refs th:first-child { width:128px }
+/* Scenario categories: chosen in the clip form, shown beside the clip's tags. */
+.scenario-chips { display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px }
+.scenario-chip { border:1px solid #e1e7e5;border-radius:12px;background:#fff;color:#66737c;font-size:10px;line-height:1.4;padding:3px 8px;text-align:left }
+.scenario-chip:hover:not(:disabled) { border-color:#9cc3b4;color:var(--green-dark) }
+.scenario-chip[aria-pressed=true] { background:var(--green-wash);border-color:var(--green);color:var(--green-dark);font-weight:550 }
+.scenario-help { font-size:9px;line-height:1.6;color:#98a3a9;margin:0 0 4px }
+.editor-card #clip-scenarios-label, #clip-scenarios, .scenario-help { grid-column:1/-1 }
+.clip-scenario { display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:8px;line-height:1.6;padding:2px 5px;border-radius:3px;background:var(--green-wash);color:var(--green-dark);margin-bottom:4px }

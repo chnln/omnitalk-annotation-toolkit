@@ -2,7 +2,7 @@ import {
   STORAGE_KEY, LIMITS, createProject, createVideo, createClip, createQuestion, questionReadyError, MODALITIES,
   parseYouTubeUrl, parseTime, formatTime, validateProject,
   projectAnnotators, filterVideos, QUESTION_STATUS_FILTERS, videoRefIds, refIdConflicts,
-  createEvidence, cueModality, formatAnnotation, spansOutside,
+  createEvidence, cueModality, formatAnnotation, spansOutside, SCENARIOS, NO_SCENARIO,
 } from "./core.js";
 import { initDownloads } from "./downloads.js";
 
@@ -15,7 +15,23 @@ const PROJECTS_KEY = "omnitalk.annotation.projects.v2"; // { version: 2, project
 const SIDEBAR_KEY = "omnitalk.annotation.sidebar.collapsed.v1";
 const draftFields = ["clip-ref", "clip-start", "clip-end", "clip-note", "clip-tags"];
 const draftKeys = ["ref", "start", "end", "note", "tags"];
-const emptyDraft = () => ({ ref: "", start: "", end: "", note: "", tags: "", editing_id: null });
+const emptyDraft = () => ({ ref: "", start: "", end: "", note: "", tags: "", scenarios: [], editing_id: null });
+/** The Doc's examples for each Scenario Category, shown as the chip's tooltip. */
+const SCENARIO_EXAMPLES = {
+  social_personal: "Casual conversations, dating, personal visits, bar conversations, farewells, family interactions, personal sharing, personal check-ins. Can serve as a fallback when no other label applies.",
+  everyday_problems: "Forgetting keys, losing belongings, plan cancellations, missing appointments, unexpected changes, dealing with unusual situations.",
+  food_dining: "Cooking, dining, food tasting, restaurant meals, cooking competitions.",
+  household_domestic: "Cleaning, home repair, house painting, household chores, moving.",
+  travel_navigation: "Travel preparation, navigation, public transportation, boarding, finding a location, sightseeing.",
+  education_training: "Tutoring, training, practicing, rehearsing, classroom activities.",
+  work_professional: "Meetings, workplace collaboration, job interviews, task coordination, professional discussions.",
+  entertainment_recreation_media: "Gaming, pranking, watching TV, filming, acting, outdoor recreation, performances, celebrations, festivals.",
+  health_wellbeing: "Medical consultations, therapy, caregiving, hospital visits, health discussions.",
+  public_service: "Shopping, ordering, customer service, ticket purchasing, public information seeking, asking strangers for help.",
+  institutional_formal: "Legal procedures, police questioning, court proceedings, government services, security screening, identity verification.",
+  safety_emergency: "Police–hostage situations, emergency assistance, accident response, threats, emergency evacuations.",
+};
+const scenarioLabels = (ids) => ids.map((id) => SCENARIOS[id]);
 const clock = (seconds) => formatTime(seconds, { milliseconds: true });
 let project = createProject();
 let shelf = []; // imported projects that are loaded but not currently open
@@ -41,7 +57,8 @@ let latestExport = null;
 let sidebarCollapsed = false;
 let annotationClipTime = false; // view preference for "Copy as text": source-video time or clip time
 // Library filters are a view preference only; they never change or hide saved annotations.
-const libraryFilter = { query: "", annotator: "", status: "" };
+const libraryFilter = { query: "", annotator: "", status: "", scenario: "" };
+let clipScenarios = []; // scenario categories selected in the clip form
 const storedValues = new Map();
 
 function setSidebarCollapsed(collapsed, persist = true) {
@@ -179,6 +196,8 @@ function validDrafts(item, saved) {
         // Drafts saved before reference IDs existed have no ref.
         ref: typeof draft.ref === "string" && draft.ref.length <= 100 ? draft.ref : "",
         start: draft.start, end: draft.end, note: draft.note, tags: draft.tags,
+        // Drafts saved before scenario categories existed have none.
+        scenarios: Array.isArray(draft.scenarios) ? Object.keys(SCENARIOS).filter((id) => draft.scenarios.includes(id)) : [],
         editing_id: video.clips.some((clip) => clip.id === draft.editing_id) ? draft.editing_id : null,
       };
     }
@@ -259,13 +278,13 @@ const currentVideo = () => project.videos.find((video) => video.id === activeId)
 const knownDuration = () => mediaDuration || currentVideo()?.duration_seconds || null;
 
 function currentDraft() {
-  return { ref: $("clip-ref").value, start: $("clip-start").value, end: $("clip-end").value, note: $("clip-note").value, tags: $("clip-tags").value, editing_id: editingId };
+  return { ref: $("clip-ref").value, start: $("clip-start").value, end: $("clip-end").value, note: $("clip-note").value, tags: $("clip-tags").value, scenarios: [...clipScenarios], editing_id: editingId };
 }
 
 function rememberDraft(persist = true) {
   if (!activeId) return;
   const draft = currentDraft();
-  if (draft.editing_id || draftKeys.some((key) => draft[key])) drafts[activeId] = draft;
+  if (draft.editing_id || draftKeys.some((key) => draft[key]) || draft.scenarios.length) drafts[activeId] = draft;
   else delete drafts[activeId];
   if (persist) persistWorkspace();
 }
@@ -274,6 +293,7 @@ function restoreDraft() {
   const draft = drafts[activeId] || emptyDraft();
   editingId = draft.editing_id;
   draftFields.forEach((id, index) => { $(id).value = draft[draftKeys[index]] ?? ""; });
+  setClipScenarios(draft.scenarios ?? []);
   $("editor-title").textContent = editingId ? "Edit clip" : "New clip";
   $("save-clip-label").textContent = editingId ? "Save changes" : "Add clip";
   $("cancel-edit").hidden = !editingId;
@@ -287,6 +307,30 @@ function resetDraft() {
   persistWorkspace();
 }
 
+/** Show the clip form's scenario selection; chips stay in the Doc's table order. */
+function setClipScenarios(ids) {
+  clipScenarios = Object.keys(SCENARIOS).filter((id) => ids.includes(id));
+  for (const chip of $("clip-scenarios").children) chip.setAttribute("aria-pressed", String(clipScenarios.includes(chip.dataset.scenario)));
+}
+
+function renderScenarioChips() {
+  $("clip-scenarios").replaceChildren(...Object.entries(SCENARIOS).map(([id, label]) => {
+    const chip = el("button", "scenario-chip", label);
+    chip.type = "button";
+    chip.dataset.scenario = id;
+    chip.title = SCENARIO_EXAMPLES[id];
+    chip.setAttribute("aria-pressed", "false");
+    chip.addEventListener("click", () => {
+      setClipScenarios(clipScenarios.includes(id) ? clipScenarios.filter((item) => item !== id) : [...clipScenarios, id]);
+      rememberDraft();
+      fieldError("clip-error");
+    });
+    return chip;
+  }));
+}
+
+const sameScenarios = (a = [], b = []) => [...a].sort().join() === [...b].sort().join();
+
 function splitTags(value) {
   return [...new Set(value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean))];
 }
@@ -294,9 +338,9 @@ function splitTags(value) {
 function isDirtyDraft(draft, video) {
   if (!draft) return false;
   const clip = video.clips.find((item) => item.id === draft.editing_id);
-  if (!clip) return draftKeys.some((key) => draft[key]);
+  if (!clip) return draftKeys.some((key) => draft[key]) || !!draft.scenarios?.length;
   try {
-    return (draft.ref ?? "").trim() !== clip.ref_id || parseTime(draft.start) !== clip.start_seconds || parseTime(draft.end) !== clip.end_seconds || draft.note !== clip.note || JSON.stringify(splitTags(draft.tags)) !== JSON.stringify(clip.tags);
+    return (draft.ref ?? "").trim() !== clip.ref_id || !sameScenarios(draft.scenarios, clip.scenarios) || parseTime(draft.start) !== clip.start_seconds || parseTime(draft.end) !== clip.end_seconds || draft.note !== clip.note || JSON.stringify(splitTags(draft.tags)) !== JSON.stringify(clip.tags);
   } catch { return true; }
 }
 
@@ -333,7 +377,8 @@ function renderLibraryFilters() {
   const option = (value, label) => { const node = el("option", "", label); node.value = value; return node; };
   $("library-annotator").replaceChildren(option("", "All annotators"), ...annotators.map((item) => option(item.key, item.label || "Unattributed")));
   $("library-status").replaceChildren(option("", "Any question status"), ...Object.entries(QUESTION_STATUS_FILTERS).map(([value, label]) => option(value, label)));
-  for (const key of ["annotator", "status"]) $(`library-${key}`).value = libraryFilter[key];
+  $("library-scenario").replaceChildren(option("", "Any scenario"), ...Object.entries(SCENARIOS).map(([value, label]) => option(value, label)), option(NO_SCENARIO, "Clips without a scenario"));
+  for (const key of ["annotator", "status", "scenario"]) $(`library-${key}`).value = libraryFilter[key];
   $("library-filters").hidden = !project.videos.length;
 }
 
@@ -409,7 +454,7 @@ function renderClips() {
     ? `Clips for ${video.title || video.video_id}, sorted by start time.`
     : "Load a video, then add clips to this list.";
   const query = $("clips-search").value.trim().toLocaleLowerCase();
-  const clips = allClips.filter((clip) => `${clip.ref_id} ${clip.note} ${clip.tags.join(" ")} ${(clip.questions || []).map(q => q.prompt).join(" ")}`.toLocaleLowerCase().includes(query));
+  const clips = allClips.filter((clip) => `${clip.ref_id} ${clip.note} ${clip.tags.join(" ")} ${scenarioLabels(clip.scenarios).join(" ")} ${(clip.questions || []).map(q => q.prompt).join(" ")}`.toLocaleLowerCase().includes(query));
   $("clip-count").textContent = allClips.length;
   $("clips-empty").hidden = allClips.length > 0;
   $("clips-table-container").hidden = !clips.length;
@@ -440,6 +485,7 @@ function renderClips() {
     qaButton.addEventListener("click", () => { qaClipId = clip.id; qaQuestionId = null; setQACollapsed(false); renderQA(); $("qa-panel").scrollIntoView({ behavior: "smooth", block: "start" }); });
     noteCell.append(qaButton);
     const tagCell = el("td");
+    tagCell.append(...scenarioLabels(clip.scenarios).map((label) => { const item = el("span", "clip-scenario", label); item.title = `Scenario: ${label}`; return item; }));
     const tags = el("div", "tag-list");
     tags.append(...clip.tags.map((tag) => { const item = el("span", "clip-tag", tag); item.title = tag; return item; }));
     tagCell.append(tags);
@@ -786,7 +832,7 @@ function draftClip() {
   return createClip({
     ref_id: $("clip-ref").value,
     start_seconds: parseTime($("clip-start").value), end_seconds: parseTime($("clip-end").value),
-    note: $("clip-note").value, tags: splitTags($("clip-tags").value),
+    note: $("clip-note").value, tags: splitTags($("clip-tags").value), scenarios: clipScenarios,
   }, knownDuration(), project.annotator);
 }
 
@@ -857,7 +903,7 @@ async function editClip(clip) {
   const video = currentVideo();
   if (isDirtyDraft(currentDraft(), video) && !await confirmAction("Edit this clip?", "This will replace the unfinished draft in the editor. Your saved clips will not change.", "Start editing")) return;
   qaClipId = clip.id;
-  drafts[activeId] = { ref: clip.ref_id, start: clock(clip.start_seconds), end: clock(clip.end_seconds), note: clip.note, tags: clip.tags.join(", "), editing_id: clip.id };
+  drafts[activeId] = { ref: clip.ref_id, start: clock(clip.start_seconds), end: clock(clip.end_seconds), note: clip.note, tags: clip.tags.join(", "), scenarios: [...clip.scenarios], editing_id: clip.id };
   restoreDraft();
   persistWorkspace();
   renderClips();
@@ -1093,7 +1139,7 @@ function renderQA() {
   const clip = qaClip();
   $("qa-add").disabled = !clip || clip.questions.length >= 100;
   $("qa-content").hidden = !clip;
-  $("qa-context").textContent = clip ? `${clip.ref_id ? `${clip.ref_id} · ` : ""}${clock(clip.start_seconds)} – ${clock(clip.end_seconds)} · ${clip.questions.length} ${clip.questions.length === 1 ? "question" : "questions"}` : "Save a clip, then design its questions here.";
+  $("qa-context").textContent = clip ? `${clip.ref_id ? `${clip.ref_id} · ` : ""}${clock(clip.start_seconds)} – ${clock(clip.end_seconds)}${clip.scenarios.length ? ` · ${scenarioLabels(clip.scenarios).join("; ")}` : ""} · ${clip.questions.length} ${clip.questions.length === 1 ? "question" : "questions"}` : "Save a clip, then design its questions here.";
   $("qa-clip-select").replaceChildren(...clips.map((c, i) => { const o = el("option", "", `${c.ref_id || `Clip ${i + 1}`} · ${clock(c.start_seconds)} – ${clock(c.end_seconds)}`); o.value = c.id; return o; }));
   $("qa-copy-ref").hidden = !clip?.ref_id;
   $("qa-copy-ref").textContent = clip?.ref_id ?? "";
@@ -1331,12 +1377,12 @@ $("cancel-edit").addEventListener("click", async () => {
 });
 $("clips-search").addEventListener("input", renderClips);
 function clearLibraryFilters(render = true) {
-  Object.assign(libraryFilter, { query: "", annotator: "", status: "" });
+  Object.assign(libraryFilter, { query: "", annotator: "", status: "", scenario: "" });
   $("library-search").value = "";
   if (render) renderVideos();
 }
 $("library-search").addEventListener("input", () => { libraryFilter.query = $("library-search").value; renderVideos(); });
-for (const key of ["annotator", "status"]) $(`library-${key}`).addEventListener("change", () => { libraryFilter[key] = $(`library-${key}`).value; renderVideos(); });
+for (const key of ["annotator", "status", "scenario"]) $(`library-${key}`).addEventListener("change", () => { libraryFilter[key] = $(`library-${key}`).value; renderVideos(); });
 $("clear-library-filters").addEventListener("click", () => clearLibraryFilters());
 $("download-all-clips").addEventListener("click", () => downloadUI?.openAll());
 $("project-name").addEventListener("input", () => { project.project_name = $("project-name").value; persistProject(); renderProjectPicker(); });
@@ -1400,6 +1446,7 @@ window.addEventListener("beforeunload", (event) => {
 });
 
 restoreSidebarPreference();
+renderScenarioChips();
 restoreStorage();
 if (isStaticMode) {
   $("browser-demo-notice").hidden = false;

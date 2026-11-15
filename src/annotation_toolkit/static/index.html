@@ -69,6 +69,7 @@
           <label class="library-search"><svg class="icon"><use href="#i-search"/></svg><input id="library-search" placeholder="Filter by title, YouTube ID, or ref ID" aria-label="Filter videos by title, YouTube ID, or reference ID" autocomplete="off"></label>
           <select id="library-annotator" aria-label="Filter videos by annotator"></select>
           <select id="library-status" aria-label="Filter videos by question status"></select>
+          <select id="library-scenario" aria-label="Filter videos by scenario category"></select>
           <div class="library-filter-summary" id="library-filter-summary" role="status" hidden><span id="library-filter-count"></span><button class="text-button" id="clear-library-filters" type="button">Clear filters</button></div>
         </div>
         <nav id="video-list" class="video-list" aria-label="Video list"></nav>
@@ -131,6 +132,8 @@
                 <label for="clip-ref" class="form-label">Reference ID <span class="optional">Optional, e.g. R4-C06</span></label><input id="clip-ref" class="ref-input" maxlength="100" autocomplete="off" spellcheck="false" placeholder="Your own catalog ID for this clip">
                 <label for="clip-note" class="form-label">Note <span class="optional">Optional</span></label><textarea id="clip-note" rows="4" maxlength="20000" placeholder="Speakers, interaction, or why this conversation is worth keeping…"></textarea>
                 <label for="clip-tags" class="form-label">Tags <span class="optional">Optional, comma-separated</span></label><input id="clip-tags" maxlength="1200" placeholder="e.g. group conversation, overlapping speech">
+                <span class="form-label" id="clip-scenarios-label">Scenario category <span class="optional">Optional, usually one</span></span><div class="scenario-chips" id="clip-scenarios" role="group" aria-labelledby="clip-scenarios-label" aria-describedby="clip-scenarios-help"></div>
+                <p class="scenario-help" id="clip-scenarios-help">Pick the dominant scenario. Add another only when a distinct scenario is clearly shown; avoid unnecessary labels. If none fits, leave this empty and describe the scenario in the note (“No suitable scenario label”).</p>
                 <p class="field-error" id="clip-error" role="alert" hidden></p>
                 <button class="button primary save-clip" type="submit" id="save-clip"><svg class="icon"><use href="#i-plus"/></svg><span id="save-clip-label">Add clip</span><kbd>⌘ ↵</kbd></button>
                 <p class="editor-hint">Enter seconds or <span class="mono">mm:ss.sss</span></p>
@@ -152,9 +155,9 @@
         </section>
 
         <section class="clips-card" aria-labelledby="clips-heading">
-          <div class="clips-heading"><div><h2 id="clips-heading">Clips <span class="count-pill" id="clip-count">0</span></h2><p id="clips-description">Load a video, then add clips to this list.</p></div><div class="clips-actions"><label class="clip-search"><svg class="icon"><use href="#i-search"/></svg><input id="clips-search" placeholder="Search notes, tags or questions" aria-label="Search notes, tags or questions"></label><button class="button secondary" id="download-all-clips" type="button" disabled><svg class="icon"><use href="#i-download"/></svg>Download all</button></div></div>
+          <div class="clips-heading"><div><h2 id="clips-heading">Clips <span class="count-pill" id="clip-count">0</span></h2><p id="clips-description">Load a video, then add clips to this list.</p></div><div class="clips-actions"><label class="clip-search"><svg class="icon"><use href="#i-search"/></svg><input id="clips-search" placeholder="Search notes, tags, scenarios or questions" aria-label="Search notes, tags, scenarios or questions"></label><button class="button secondary" id="download-all-clips" type="button" disabled><svg class="icon"><use href="#i-download"/></svg>Download all</button></div></div>
           <div class="clips-empty" id="clips-empty"><span class="empty-bookmark"><svg class="icon"><use href="#i-bookmark"/></svg></span><h3>Your corpus starts with the first clip</h3><p>Mark the start and end, add your observations, then click Add clip.</p><span class="empty-step"><kbd>I</kbd><span>Mark start</span><span class="step-dash"></span><kbd>O</kbd><span>Mark end</span></span></div>
-          <div class="table-scroll" id="clips-table-container" hidden><table><thead><tr><th scope="col">Clip</th><th scope="col">Time range</th><th scope="col">Note</th><th scope="col">Tags</th><th scope="col" class="actions-heading">Actions</th></tr></thead><tbody id="clips-body"></tbody></table></div>
+          <div class="table-scroll" id="clips-table-container" hidden><table><thead><tr><th scope="col">Clip</th><th scope="col">Time range</th><th scope="col">Note</th><th scope="col">Scenario · tags</th><th scope="col" class="actions-heading">Actions</th></tr></thead><tbody id="clips-body"></tbody></table></div>
           <div class="no-results" id="no-results" hidden>No matching clips. Try another search.</div>
           <div class="clips-footer"><svg class="icon"><use href="#i-check"/></svg><span>Clips and their questions are annotations. Saved in this browser; Export JSON creates a file.</span><span class="json-badge">.json</span></div>
         </section>
