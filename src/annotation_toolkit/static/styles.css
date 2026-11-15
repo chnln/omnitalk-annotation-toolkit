@@ -74,7 +74,8 @@
 .qa-span-dash { color:#a7b2ae; }
 .qa-span-relative { font:10px var(--mono); color:#9aa6a2; }
 .qa-evidence > .text-button { align-self:flex-start; }
-.qa-evidence-tools { display:flex; align-items:center; gap:8px; margin-top:10px; }
+.qa-evidence-tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px; }
+.qa-evidence-tools select { flex:1 1 160px; }
 .qa-evidence-tools .button { padding:6px 10px; font-size:12px; }
 .qa-editor-footer { margin-top:14px; }
 @container question-workspace (min-width:680px) {
