@@ -185,7 +185,7 @@ test("schema 1.0 migrates without interpreting notes; current schema preserves m
   const old = structuredClone(p); old.schema_version = "1.0";
   delete old.videos[0].clips[0].questions; delete old.videos[0].clips[0].subtitle_status;
   const migrated = validateProject(old);
-  assert.equal(migrated.schema_version, "1.4");
+  assert.equal(migrated.schema_version, "1.5");
   assert.equal(migrated.videos[0].clips[0].note, "Question: keep this note");
   assert.deepEqual(migrated.videos[0].clips[0].questions, []);
   v.clips[0].questions.push(createQuestion(), createQuestion());
@@ -371,4 +371,69 @@ test("1.4 questions carry time-spanned evidence; 1.3 migrates with none; spans s
   }
   assert.throws(() => createEvidence("smell"), /Unknown evidence cue/);
   assert.throws(() => createEvidence("gesture", { start_seconds: 40, end_seconds: 40 }), /Span end must be after its start/);
+});
+
+test("1.5 clips carry distinct known scenario categories; files before 1.5 migrate with none", async () => {
+  const { SCENARIOS } = await import("../src/annotation_toolkit/static/core.js");
+  assert.equal(Object.keys(SCENARIOS).length, 12);
+  assert.equal(SCENARIOS.entertainment_recreation_media, "Entertainment, Recreation & Media");
+  const p = createProject(); const v = createVideo(parseYouTubeUrl(ID));
+  v.clips.push(createClip({ start_seconds: 0, end_seconds: 10, ref_id: "R9-01", scenarios: ["food_dining", "everyday_problems"] })); p.videos.push(v);
+  assert.deepEqual(createClip({ start_seconds: 0, end_seconds: 1 }).scenarios, [], "a new clip starts without a scenario");
+  assert.deepEqual(validateProject(structuredClone(p)).videos[0].clips[0].scenarios, ["food_dining", "everyday_problems"], "the file's order is kept");
+  const broken = (value) => { const copy = structuredClone(p); copy.videos[0].clips[0].scenarios = value; return copy; };
+  assert.deepEqual(validateProject(broken([])).videos[0].clips[0].scenarios, [], "no suitable label is an empty selection");
+  assert.throws(() => validateProject(broken(["food_dining", "food_dining"])), /same scenario category twice/);
+  assert.throws(() => validateProject(broken(["cooking"])), /Unknown scenario category: "cooking"/);
+  assert.throws(() => validateProject(broken(["Food & Dining"])), /Unknown scenario category/, "display names are not IDs");
+  assert.throws(() => validateProject(broken(["constructor"])), /Unknown scenario category/);
+  assert.throws(() => validateProject(broken("food_dining")), /must be an array/);
+  assert.throws(() => validateProject(broken(null)), /must be an array/);
+  const missing = structuredClone(p); delete missing.videos[0].clips[0].scenarios;
+  assert.throws(() => validateProject(missing), /must contain a scenarios array/);
+  assert.throws(() => createClip({ start_seconds: 0, end_seconds: 1, scenarios: ["x"] }), /Unknown scenario category/);
+  for (const version of ["1.0", "1.1", "1.2", "1.3", "1.4"]) {
+    const old = structuredClone(p); old.schema_version = version;
+    old.videos[0].clips[0].scenarios = "ignored before 1.5";
+    if (version === "1.0") { delete old.videos[0].clips[0].questions; delete old.videos[0].clips[0].subtitle_status; }
+    const clip = validateProject(old).videos[0].clips[0];
+    assert.deepEqual(clip.scenarios, [], version);
+    assert.equal(clip.ref_id, ["1.3", "1.4"].includes(version) ? "R9-01" : "", `${version} keeps ref_id only where it existed`);
+  }
+});
+
+test("1.4 files keep ref IDs and evidence; action_event and object_scene become action and object, de-duplicated", async () => {
+  const { createQuestion, createEvidence, MODALITIES, LEGACY_CUE_RENAMES } = await import("../src/annotation_toolkit/static/core.js");
+  assert.deepEqual(LEGACY_CUE_RENAMES, { action_event: "action", object_scene: "object" });
+  assert.deepEqual(Object.keys(MODALITIES.audio.cues), ["speech_content", "prosody", "environmental_sounds", "voice_characteristics", "vocalization"]);
+  assert.deepEqual(Object.keys(MODALITIES.visual.cues), ["scene", "action", "event", "gesture", "facial_expression", "gaze", "person_appearance", "object"]);
+  assert.deepEqual(Object.values(MODALITIES.visual.cues), ["Scene", "Action", "Event", "Body Gesture", "Facial Expression", "Gaze", "Human Status & Appearance", "Object"]);
+  assert.equal(MODALITIES.text.cues.scene_text, "Written language");
+  const p = createProject(); p.schema_version = "1.4";
+  const v = createVideo(parseYouTubeUrl(ID));
+  const clip = createClip({ start_seconds: 60, end_seconds: 90, ref_id: "R8-03" }); delete clip.scenarios;
+  const q = createQuestion();
+  Object.assign(q, { required_modalities: ["audio", "visual"], evidence_cues: ["speech_content", "action_event", "action", "object_scene", "gesture"] });
+  const act = { ...createEvidence("gesture", { start_seconds: 61, end_seconds: 62 }), cue: "action_event", content: "hands over a cup", function: "f" };
+  const obj = { ...createEvidence("gesture", { start_seconds: 63, end_seconds: 64 }), cue: "object_scene", content: "the cup" };
+  const kept = { ...createEvidence("gesture", { start_seconds: 65, end_seconds: 66 }), content: "points" };
+  q.annotations.push(act, obj, kept); clip.questions.push(q); v.clips.push(clip); p.videos.push(v);
+  const migrated = validateProject(structuredClone(p));
+  assert.equal(migrated.schema_version, "1.5");
+  const mc = migrated.videos[0].clips[0]; const mq = mc.questions[0];
+  assert.equal(mc.ref_id, "R8-03"); assert.deepEqual(mc.scenarios, []);
+  assert.deepEqual(mq.evidence_cues, ["speech_content", "action", "object", "gesture"], "renamed in place, duplicates dropped");
+  assert.deepEqual(mq.annotations.map((e) => e.cue), ["action", "object", "gesture"]);
+  assert.deepEqual(mq.annotations.map((e) => [e.content, e.function, e.spans]), q.annotations.map((e) => [e.content, e.function, e.spans]));
+  assert.deepEqual(validateProject(structuredClone(migrated)), migrated, "the migrated project is valid 1.5 and unchanged by a second pass");
+  const current = structuredClone(p); current.schema_version = "1.5"; current.videos[0].clips[0].scenarios = [];
+  assert.throws(() => validateProject(current), /Invalid evidence cues/, "1.5 files may not use the split cues");
+  const strayEvidence = structuredClone(p); strayEvidence.videos[0].clips[0].questions[0].annotations[2].cue = "event";
+  assert.throws(() => validateProject(strayEvidence), /must also be selected/);
+
+  const example = JSON.parse(readFileSync(new URL("../examples/annotation-project-1.4.json", import.meta.url), "utf8"));
+  const fromExample = validateProject(example).videos[0].clips[0];
+  assert.deepEqual(fromExample.questions[0].evidence_cues, ["speech_content", "action"]);
+  assert.deepEqual(fromExample.questions[0].annotations.map((e) => e.cue), ["speech_content", "action"]);
+  assert.equal(fromExample.ref_id, "PILOT-01");
 });

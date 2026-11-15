@@ -696,7 +696,7 @@ test("clips record their annotator, keep it across edits and profile changes, an
   assert.equal(w.node("clips-body").children[0].children.length, 5, "the clips table has no annotator column");
   await w.api.exportProject();
   const exported = core.validateProject(w.exports[0]);
-  assert.equal(exported.schema_version, "1.4");
+  assert.equal(exported.schema_version, "1.5");
   assert.equal(exported.videos[0].clips[0].annotator.name, "Nan");
 });
 
@@ -956,7 +956,7 @@ test("evidence lines take a cue, content, playhead or typed spans, guard their c
   await button("Visual").click();
   assert.deepEqual(plain(q().required_modalities), ["audio", "visual"], "a modality used by evidence cannot be deselected");
   assert.equal(w.node("toast").hidden, false);
-  await button("Gesture").click();
+  await button("Body Gesture").click();
   assert.ok(q().evidence_cues.includes("gesture"), "a cue used by evidence cannot be deselected");
 
   await button("Mark Ready").click();
@@ -992,7 +992,7 @@ test("evidence lines take a cue, content, playhead or typed spans, guard their c
 
   await w.api.exportProject();
   const exported = core.validateProject(w.exports[0]);
-  assert.equal(exported.schema_version, "1.4");
+  assert.equal(exported.schema_version, "1.5");
   assert.equal(exported.videos[0].clips[0].questions[0].annotations[0].function, "identifies the referent");
   await labelled("Remove evidence 1").click();
   assert.deepEqual(plain(q().annotations), []);

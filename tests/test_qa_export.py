@@ -149,3 +149,49 @@ class EvidenceExportTests(unittest.TestCase):
             mutations(clip['questions'][0], clip['start_seconds'], clip['end_seconds'])[i]()
             with self.subTest(i=i), self.assertRaises(DownloadError):
                 validate_export(p)
+
+
+class ScenarioAndCueExportTests(unittest.TestCase):
+    def fixture(self):
+        p = EvidenceExportTests().fixture()
+        p['schema_version'] = '1.5'
+        p['videos'][0]['clips'][0]['scenarios'] = ['work_professional']
+        return p
+
+    def test_schema_1_5_accepts_scenarios_and_the_doc_cues(self):
+        p = self.fixture()
+        self.assertEqual(validate_export(copy.deepcopy(p)), p)
+        q = p['videos'][0]['clips'][0]['questions'][0]
+        q.update(required_modalities=['audio', 'visual'],
+                 evidence_cues=['speech_content', 'prosody', 'voice_characteristics', 'scene', 'action', 'event', 'object'])
+        q['annotations'][1]['cue'] = 'voice_characteristics'
+        p['videos'][0]['clips'][0]['scenarios'] = []
+        self.assertEqual(validate_export(copy.deepcopy(p)), p, 'no suitable scenario label is an empty list')
+
+    def test_schema_1_5_rejects_bad_scenarios_and_split_cues(self):
+        for change in ({'scenarios': None}, {'scenarios': 'work_professional'}, {'scenarios': ['work_professional'] * 2},
+                       {'scenarios': ['Work & Professional Activities']}, {'scenarios': [1]}):
+            p = self.fixture()
+            p['videos'][0]['clips'][0].update(change)
+            with self.subTest(change=change), self.assertRaises(DownloadError):
+                validate_export(p)
+        p = self.fixture()
+        del p['videos'][0]['clips'][0]['scenarios']
+        with self.assertRaises(DownloadError):
+            validate_export(p)
+        for cue in ('action_event', 'object_scene'):
+            p = self.fixture()
+            q = p['videos'][0]['clips'][0]['questions'][0]
+            q.update(required_modalities=['audio', 'visual'], evidence_cues=['speech_content', 'prosody', cue])
+            with self.subTest(cue=cue), self.assertRaises(DownloadError):
+                validate_export(p)
+
+    def test_schema_1_4_keeps_its_cues_and_ignores_scenarios(self):
+        p = self.fixture()
+        p['schema_version'] = '1.4'
+        clip = p['videos'][0]['clips'][0]
+        clip['scenarios'] = 'not checked before 1.5'
+        q = clip['questions'][0]
+        q.update(required_modalities=['audio', 'visual'], evidence_cues=['speech_content', 'prosody', 'action_event', 'object_scene'])
+        q['annotations'][1]['cue'] = 'action_event'
+        self.assertEqual(validate_export(copy.deepcopy(p)), p)
