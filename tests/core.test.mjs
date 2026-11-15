@@ -492,3 +492,9 @@ test("team text rows follow the Doc: temporal order, millisecond spans, numbered
   assert.equal(formatAnnotationRows(bare, { start_seconds: 0, end_seconds: 20 }), "Annotation:\n[00:10.000–00:11.000] (speech-content): Hi.", "no Function or Scenario line when there is nothing to say");
   assert.match(formatAnnotation(q, clip), /^\(action\): Rebecca Bond answers a phone call\. \[time_span: 15:26 ~ 15:31\]$/m, "the time_span format is still available");
 });
+
+test("the 1.5 example imports unchanged", () => {
+  const example = JSON.parse(readFileSync(new URL("../examples/annotation-project-1.5.json", import.meta.url), "utf8"));
+  assert.equal(example.schema_version, "1.5");
+  assert.deepEqual(validateProject(structuredClone(example)), example);
+});

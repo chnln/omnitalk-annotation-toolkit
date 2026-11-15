@@ -53,9 +53,9 @@ uv run annotation-toolkit --download-dir "/absolute/path/to/output"
 
 1. Set a project name. **Annotator ID** and **Display name** are optional; they identify the author in exported JSON, not a login. Each new clip records the annotator entered when it is added, so one project can hold videos collected by several people; the **Video library** shows each video's annotator under its title. Changing these fields later does not reassign existing clips.
 2. Paste a YouTube link or video ID and click **Load video**. Switch between videos in **Video library**; each keeps its clips and unfinished draft.
-3. Set **Start time** and **End time**, or click **Use current** while playing. Optionally enter a **Reference ID** from your own catalog (such as `R4-C06`). Add **Note** and **Tags**, then click **Add clip**.
+3. Set **Start time** and **End time**, or click **Use current** while playing. Optionally enter a **Reference ID** from your own catalog (such as `R4-C06`). Add **Note** and **Tags**, pick the clip's **Scenario category** (usually one: the dominant scenario; if none fits, leave it empty and describe the scenario in the note), then click **Add clip**.
 4. Preview, edit, or delete clips from the list. **Download all** applies to every saved clip of the selected video, including clips hidden by search, but excludes unfinished drafts and other videos.
-5. Narrow the **Video library** with the filters under its heading: title or YouTube ID, annotator (anyone who added a clip to the video), and question status (has Draft questions, all questions Ready, clips without questions, or no clips yet). Filters combine, only change what the sidebar shows, and are not saved in the project.
+5. Narrow the **Video library** with the filters under its heading: title or YouTube ID, annotator (anyone who added a clip to the video), question status (has Draft questions, all questions Ready, clips without questions, or no clips yet), and scenario category (a clip with that category, or clips without one). Filters combine, only change what the sidebar shows, and are not saved in the project.
 6. Use **Export JSON** to keep a backup or share annotations. **Import JSON** accepts several files at once. Each file stays a separate project: use the file selector at the top of the sidebar to switch between them, or the trash button beside it to remove one from browser storage.
 
 | Shortcut | Action |
@@ -72,8 +72,8 @@ Deleting a library video requires confirmation and removes its clips and draft f
 
 1. Save a clip, then use the **Questions** panel or the clip row's **Design QA** button. The selected clip dropdown switches the question workspace independently of the range editor.
 2. Click **Add question**. Edit the prompt, add/remove answer options, and select the circle next to the correct answer. Each clip can contain multiple questions.
-3. Select **Audio**, **Visual**, and/or **Text**, then optional evidence cues. Turning off a parent modality also clears its cues. Record a short rationale if useful.
-   Under **Annotation · evidence with time spans**, add one line per piece of evidence: pick its cue (which also selects the cue and modality above), describe what is said or seen, set one or more time spans with **Start = now** / **End = now** or by typing original-video times, and for non-speech evidence note its function in the communication. **Copy as team text** produces the `Annotation:` block used in the team document, in original-video or clip time.
+3. Select **Audio**, **Visual**, and/or **Text**, then optional evidence cues. The cues follow the guideline's Modality Elements; hover a cue for its definition (for example Action vs Event vs Body Gesture). Turning off a parent modality also clears its cues. Record a short rationale if useful.
+   Under **Annotation · evidence with time spans**, add one line per piece of evidence: pick its cue (which also selects the cue and modality above), describe what is said or seen, set one or more time spans with **Start = now** / **End = now** or by typing original-video times, and for non-speech evidence note its function in the communication, at a more abstract level than the description. **Insert a function category…** adds one of the guideline's categories, such as *Indicates an object referent*, to edit further. **Copy as team text** produces the team document's rows, `[MM:SS.mmm–MM:SS.mmm] (label): description`, followed by the Function and Scenario Category lines, in original-video or clip time; **Copy in time_span format** gives the older `(label): … [time_span: MM:SS ~ MM:SS]` text.
 4. Questions autosave immediately as **Draft** and are included in JSON exports, even when incomplete. **Mark Ready** checks completeness; editing a Ready question returns it to Draft. Export regularly for a file backup.
 5. Record the clip's subtitle status separately. Visible subtitles do not automatically make Text a required modality. No masking or subtitle processing is performed by this field.
 
@@ -90,15 +90,15 @@ Download only content you have permission to use. The toolkit does not import lo
 
 ## Annotation JSON schema
 
-For generated datasets, use the **[standalone import specification](SCHEMA.md)** and the **[importable example with a complete question](examples/annotation-project-1.4.json)**. The specification includes exact field limits, enum values, source-time conversion, and a command that runs the app's actual import validator. Research catalogs and flat QA arrays require conversion before import.
+For generated datasets, use the **[standalone import specification](SCHEMA.md)** and the **[importable example with a complete question](examples/annotation-project-1.5.json)**. The specification includes exact field limits, enum values, source-time conversion, and a command that runs the app's actual import validator. Research catalogs and flat QA arrays require conversion before import.
 
-The current format is **schema `1.4`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.3.0`. Version 1.4 adds per-question evidence with time spans (`annotations`) and the audio cue `vocalization`; 1.3 added an optional per-clip `ref_id`. Older releases cannot import newer schemas. See [schema versions](SCHEMA.md#schema-versions) for each version's changes and how older files migrate. The English interface accepts Unicode text in names, notes, and tags.
+The current format is **schema `1.5`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.3.0`. Version 1.5 adds per-clip scenario categories (`scenarios`) and aligns the evidence cues with the team guideline's Modality Elements (new `voice_characteristics`; `action_event` split into `action` and `event`, `object_scene` into `object` and `scene`); 1.4 added per-question evidence with time spans (`annotations`) and the audio cue `vocalization`; 1.3 added an optional per-clip `ref_id`. Older releases cannot import newer schemas. See [schema versions](SCHEMA.md#schema-versions) for each version's changes and how older files migrate. The English interface accepts Unicode text in names, notes, and tags.
 
 ### Project fields
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | Exports use `"1.4"`; legacy `"1.0"` to `"1.3"` files are migrated on import. |
+| `schema_version` | string | Exports use `"1.5"`; legacy `"1.0"` to `"1.4"` files are migrated on import. |
 | `project_id` | UUID string | Identifies this project. |
 | `project_name` | string | User-entered project name. |
 | `annotator` | object | The current annotator: contains `id` and `name`, both strings. Either may be empty (`""`); neither creates an account. New clips copy it as their own `annotator`. |
@@ -129,9 +129,10 @@ The current format is **schema `1.4`**, shared by the local app and browser edit
 | `annotator` | object | Who created the clip: `id` and `name` strings, copied from the project annotator when the clip was added. Editing the clip keeps it. Both may be empty for an unattributed record. |
 | `note` | string | Free-text observation; may be empty (`""`). |
 | `tags` | array of strings | Labels such as `"conversation"`; may be empty (`[]`). |
+| `scenarios` | array of strings | Scenario category IDs from the team guideline, such as `"food_dining"`; `[]` when none is chosen or none fits. See [scenario categories](SCHEMA.md#scenario-categories). |
 | `created_at`, `updated_at` | timestamp strings | Clip creation and last recorded modification. These are not an edit history. |
 
-All fields above are required for schema 1.4 on import except `exported_at`; optional user input is represented by empty strings or arrays, rather than missing fields. Project, video record, and clip UUIDs must be unique across the file. Timestamps are ISO 8601 strings and are exported in UTC (`Z`). Clip boundaries are numeric seconds rounded to milliseconds: `0 <= start_seconds < end_seconds`, with the end no later than the video duration when known. Clip duration is calculated as `end_seconds - start_seconds`; it is not a separate field. Millisecond storage does not guarantee frame-accurate playback or cutting.
+All fields above are required for schema 1.5 on import except `exported_at`; optional user input is represented by empty strings or arrays, rather than missing fields. Project, video record, and clip UUIDs must be unique across the file. Timestamps are ISO 8601 strings and are exported in UTC (`Z`). Clip boundaries are numeric seconds rounded to milliseconds: `0 <= start_seconds < end_seconds`, with the end no later than the video duration when known. Clip duration is calculated as `end_seconds - start_seconds`; it is not a separate field. Millisecond storage does not guarantee frame-accurate playback or cutting.
 
 ### Questions (`videos[].clips[].questions[]`)
 
@@ -150,11 +151,11 @@ Each clip adds `subtitle_status` (`unknown`, `none`, `present`, or `masked`) and
 | `status` | string | `draft` or `ready`; Ready means author-complete, not peer-reviewed. |
 | `created_at`, `updated_at` | timestamp strings | Question creation and modification times. |
 
-Audio cues: `speech_content`, `vocalization`, `prosody`, `environmental_sounds`. Visual cues: `action_event`, `gesture`, `facial_expression`, `gaze`, `person_appearance`, `object_scene`. Text cues: `subtitles`, `scene_text`. These describe the author's intended evidence requirements, not a verified ablation result. Question/option text itself does not count as a Text requirement.
+Audio cues: `speech_content`, `prosody`, `environmental_sounds`, `voice_characteristics`, `vocalization`. Visual cues: `scene`, `action`, `event`, `gesture` (Body Gesture), `facial_expression`, `gaze`, `person_appearance` (Human Status & Appearance), `object`. Text cues: `subtitles`, `scene_text` (Written language, which the guideline lists with the Visual signals; it stays a Text cue so earlier files keep their modality). These describe the author's intended evidence requirements, not a verified ablation result. Question/option text itself does not count as a Text requirement.
 
-Drafts can be incomplete. Ready requires a nonempty prompt, at least two options with no blank option among them, one correct answer, at least one modality, and content plus a time span on every evidence line. Audio-only integration (such as speech plus prosody) is valid. All question fields are required in schema 1.4. IDs must be unique across project, video, clip, question, option and evidence records. Each clip supports up to 100 questions.
+Drafts can be incomplete. Ready requires a nonempty prompt, at least two options with no blank option among them, one correct answer, at least one modality, and content plus a time span on every evidence line. Audio-only integration (such as speech plus prosody) is valid. All question fields are required in schema 1.5. IDs must be unique across project, video, clip, question, option and evidence records. Each clip supports up to 100 questions.
 
-Legacy schema 1.0 imports preserve existing notes and tags, add `questions: []` and `subtitle_status: "unknown"`, and export as 1.4. Notes are never automatically interpreted as questions. Schema 1.1 imports have no per-clip annotators, so each clip is attributed to the file's project `annotator`, then exported as 1.4. Schema 1.2 imports gain an empty `ref_id` on every clip; notes and tags are not parsed for one. Questions from 1.3 and earlier gain `annotations: []`. Older app releases cannot import newer schemas; keep original exports if you need to return to an older release.
+Legacy schema 1.0 imports preserve existing notes and tags, add `questions: []` and `subtitle_status: "unknown"`, and export as 1.5. Notes are never automatically interpreted as questions. Schema 1.1 imports have no per-clip annotators, so each clip is attributed to the file's project `annotator`, then exported as 1.5. Schema 1.2 imports gain an empty `ref_id` on every clip; notes and tags are not parsed for one. Questions from 1.3 and earlier gain `annotations: []`. Clips from 1.4 and earlier gain `scenarios: []`, and their cues `action_event` and `object_scene` become `action` and `object`; review those, since some are really an Event or a Scene. Older app releases cannot import newer schemas; keep original exports if you need to return to an older release.
 
 ### Complete example
 
@@ -162,7 +163,7 @@ This example can be saved as a UTF-8 `.json` file and imported. It describes one
 
 ```json
 {
-  "schema_version": "1.4",
+  "schema_version": "1.5",
   "project_id": "11111111-1111-4111-8111-111111111111",
   "project_name": "Conversation pilot",
   "annotator": {
@@ -195,6 +196,7 @@ This example can be saved as a UTF-8 `.json` file and imported. It describes one
           "questions": [],
           "note": "Review the opening exchange.",
           "tags": ["conversation", "pilot"],
+          "scenarios": ["social_personal"],
           "created_at": "2026-08-31T09:05:00.000Z",
           "updated_at": "2026-08-31T09:05:00.000Z"
         }

@@ -195,3 +195,11 @@ class ScenarioAndCueExportTests(unittest.TestCase):
         q.update(required_modalities=['audio', 'visual'], evidence_cues=['speech_content', 'prosody', 'action_event', 'object_scene'])
         q['annotations'][1]['cue'] = 'action_event'
         self.assertEqual(validate_export(copy.deepcopy(p)), p)
+
+
+class ExampleFileTests(unittest.TestCase):
+    def test_example_files_pass_the_export_validator(self):
+        for name in ('annotation-project-1.4.json', 'annotation-project-1.5.json'):
+            data = json.loads((Path(__file__).parents[1] / 'examples' / name).read_text(encoding='utf-8'))
+            with self.subTest(name=name):
+                self.assertIs(validate_export(data), data)
