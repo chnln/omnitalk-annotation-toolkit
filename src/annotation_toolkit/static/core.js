@@ -274,6 +274,39 @@ export const MODALITIES = {
   visual: { label: "Visual", cues: { scene: "Scene", action: "Action", event: "Event", gesture: "Body Gesture", facial_expression: "Facial Expression", gaze: "Gaze", person_appearance: "Human Status & Appearance", object: "Object" } },
   text: { label: "Text", cues: { subtitles: "Subtitles", scene_text: "Written language" } },
 };
+/** One-line definitions from the Doc's Modality Elements list, shown as tooltips. */
+export const CUE_HELP = {
+  speech_content: "What is said.",
+  prosody: "How it is said: rate (how fast or slow people speak), loudness, etc.",
+  environmental_sounds: "Sound from objects or animals, e.g. a car, a tree, a bottle, a cat.",
+  voice_characteristics: "Voice characteristics or voice source: whose voice it is, usually to tell speakers apart.",
+  vocalization: "Non-verbal vocalization, e.g. laughter, “hmm”, “um”, “ah”, a whisper, non-verbal exclaiming.",
+  scene: "The broader physical or situational context of the communication, e.g. a conference, a roundtable discussion, a living room, a classroom. A single thing in it is an Object.",
+  action: "An activity or behavior, usually by a person and typically intentional or goal-directed, e.g. picking up a phone, opening a door, handing over an object.",
+  event: "An occurrence or change in the environment that need not be intentional, e.g. someone tripping, an object falling, a plane flying overhead.",
+  gesture: "Body gesture: primarily serves a communicative function and typically does not change the physical world, unlike an Action.",
+  facial_expression: "Facial expression.",
+  gaze: "The direction, target and movement of a person's attention, shown by eye orientation and gaze shifts; includes head movement closely related to gaze.",
+  person_appearance: "Human status and appearance.",
+  object: "An object; the setting as a whole is a Scene.",
+  subtitles: "Subtitles or captions shown in the video, only when the answer needs them. Not in the Doc's list, which excludes transcription.",
+  scene_text: "Written language in the video, e.g. a phone message or written notes; not transcription. The Doc lists it with the Visual signals.",
+};
+/** Abstract function categories from the Doc; "…" marks a verb the annotator completes, e.g. "Elicits a question". */
+export const FUNCTION_SUGGESTIONS = [
+  ["Indicates a person referent", ""],
+  ["Indicates an object referent", ""],
+  ["Indicates an event/action referent", ""],
+  ["Indicates a location or spatial referent", ""],
+  ["Indicates the speaker", ""],
+  ["Indicates the addressee", ""],
+  ["Indicates the communication channel", "e.g. phone call, written notes, phone message, translation app"],
+  ["Elicits …", "The action or signal invites or seeks a verbal response from another person, e.g. raising a hand for a question."],
+  ["Triggers …", "An immediate reaction; need not be intentional."],
+  ["Causes …", "Only when the causal relationship is particularly clear."],
+  ["Explains …", "Provides contextual or motivational information, without implying that the signal directly caused the speech."],
+  ["Prompts the subsequent speech", "The general term when Elicits, Triggers, Causes and Explains do not fit."],
+];
 /** Cues split in 1.5. Older files migrate to these defaults; an old action_event may be an Event, an old object_scene a Scene. */
 export const LEGACY_CUE_RENAMES = { action_event: "action", object_scene: "object" };
 export const SUBTITLE_STATUSES = { unknown: "Not reviewed", none: "No subtitles", present: "With subtitles", masked: "Subtitle masked" };

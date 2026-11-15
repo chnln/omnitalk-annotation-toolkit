@@ -2,7 +2,7 @@ import {
   STORAGE_KEY, LIMITS, createProject, createVideo, createClip, createQuestion, questionReadyError, MODALITIES,
   parseYouTubeUrl, parseTime, formatTime, validateProject,
   projectAnnotators, filterVideos, QUESTION_STATUS_FILTERS, videoRefIds, refIdConflicts,
-  createEvidence, cueModality, formatAnnotation, spansOutside, SCENARIOS, NO_SCENARIO,
+  createEvidence, cueModality, formatAnnotation, spansOutside, SCENARIOS, NO_SCENARIO, CUE_HELP, FUNCTION_SUGGESTIONS,
 } from "./core.js";
 import { initDownloads } from "./downloads.js";
 
@@ -1175,7 +1175,8 @@ function renderEvidenceEditor(q, clip) {
   add.dataset.focusKey = "add-evidence";
   add.disabled = q.annotations.length >= LIMITS.evidencePerQuestion;
   heading.append(el("strong", "", "Annotation · evidence with time spans"), add);
-  box.append(heading, el("p", "qa-help", "One line per piece of evidence needed for the answer: what is said or seen, when, and for non-speech evidence its function in the communication. Times are in the original video; spans may be non-contiguous."));
+  box.append(heading, el("p", "qa-help", "One line per piece of evidence needed for the answer: what is said or seen, when, and for non-speech evidence its function in the communication. Times are in the original video; spans may be non-contiguous."),
+    el("p", "qa-help", "Write the function at a more abstract, generalizable level than the evidence description: what the signal does in the interaction (e.g. Indicates an object referent), not how it fits this dialogue."));
   const cueOptions = Object.entries(MODALITIES).flatMap(([, group]) => Object.entries(group.cues).map(([cue, label]) => [cue, `${group.label} · ${label}`]));
   for (const [i, e] of q.annotations.entries()) {
     const card = el("div", "qa-evidence");
@@ -1183,7 +1184,7 @@ function renderEvidenceEditor(q, clip) {
     const fail = (message) => { error.textContent = message; error.hidden = false; };
     const top = el("div", "qa-evidence-top");
     const select = el("select"); select.setAttribute("aria-label", `Evidence ${i + 1} cue`);
-    for (const [cue, label] of cueOptions) { const o = el("option", "", label); o.value = cue; select.append(o); }
+    for (const [cue, label] of cueOptions) { const o = el("option", "", label); o.value = cue; o.title = CUE_HELP[cue]; select.append(o); }
     select.value = e.cue; select.dataset.focusKey = `cue-${e.id}`;
     select.addEventListener("change", () => { e.cue = select.value; ensureCue(q, e.cue); qaSave(q); renderQAEditor(); });
     const remove = qaButton("×", () => { q.annotations = q.annotations.filter(item => item.id !== e.id); qaSave(q); renderQAEditor("add-evidence"); }, "qa-remove");
@@ -1246,10 +1247,22 @@ function renderEvidenceEditor(q, clip) {
     card.append(addSpan);
     if (e.cue !== "speech_content" || e.function) {
       const fn = el("textarea"); fn.rows = 1; fn.maxLength = 2000; fn.value = e.function;
-      fn.placeholder = "Function in the communication, e.g. identifies who “this one” refers to";
+      fn.placeholder = "Function in the communication, e.g. Indicates an object referent";
       fn.setAttribute("aria-label", `Evidence ${i + 1} function`);
       fn.addEventListener("input", () => { resizeQATextarea(fn); e.function = fn.value; qaSave(q); });
-      card.append(fn);
+      // The Doc's abstract categories; picking one inserts its text, which stays free to edit.
+      const pick = el("select", "qa-function-pick"); pick.setAttribute("aria-label", `Evidence ${i + 1} function category`);
+      pick.append(el("option", "", "Insert a function category…"));
+      pick.children[0].value = "";
+      for (const [label, help] of FUNCTION_SUGGESTIONS) { const o = el("option", "", label); o.value = label; o.title = help; pick.append(o); }
+      pick.addEventListener("change", () => {
+        if (!pick.value) return;
+        const insert = pick.value.replace(/ …$/, " ");
+        fn.value = fn.value.trim() ? `${fn.value.trimEnd()}; ${insert}` : insert;
+        pick.value = "";
+        resizeQATextarea(fn); e.function = fn.value; qaSave(q); fn.focus();
+      });
+      card.append(fn, pick);
     }
     card.append(error);
     box.append(card);
@@ -1322,11 +1335,13 @@ function renderQAEditor(focusKey = document.activeElement?.dataset?.focusKey) {
         if (selected && q.annotations.some(e => e.cue === cue)) return showToast(`${label} is used by an evidence line below. Change or remove that line first.`, true);
         q.evidence_cues = selected ? q.evidence_cues.filter(c => c !== cue) : [...q.evidence_cues, cue]; qaSave(q); renderQAEditor();
       }, "qa-chip small");
+      button.title = CUE_HELP[cue];
       button.setAttribute("aria-pressed", String(selected)); cues.append(button);
     }
     evidence.append(cues);
+    if (key === "visual") evidence.append(el("p", "qa-help", "Action: intentional, goal-directed behavior. Event: a change that need not be intentional. Body Gesture: communicative, does not change the physical world. Scene: the whole setting; Object: one thing in it. Gaze includes closely related head movement."));
   }
-  if (q.required_modalities.includes("text")) evidence.append(el("p", "qa-help", "Subtitles are a requirement only if the answer needs them. Scene text includes signs, notes and phone screens."));
+  if (q.required_modalities.includes("text")) evidence.append(el("p", "qa-help", "Written language covers phone messages, notes and signs, not transcription; the Doc lists it with the Visual signals. Subtitles are a requirement only if the answer needs them."));
   evidence.append(renderEvidenceEditor(q, clip));
   evidence.append(field("Why are these needed? · Optional", "rationale", 20000, 2));
   const error = el("p", "field-error"); error.setAttribute("role", "alert");

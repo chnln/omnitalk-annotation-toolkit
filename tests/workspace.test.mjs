@@ -1056,6 +1056,41 @@ test("evidence lines take a cue, content, playhead or typed spans, guard their c
   assert.deepEqual(plain(q().annotations), []);
 });
 
+test("cue chips explain the Doc's modality elements and function categories insert editable text", async () => {
+  const w = workspace();
+  w.api.addVideo("M7lc1UVf-VE");
+  w.fill("10", "40", "clip"); w.api.saveClip();
+  await w.node("qa-add").click();
+  const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
+  const all = () => descendants(w.node("qa-editor"));
+  const labelled = (label) => all().find((n) => n.attributes["aria-label"] === label);
+  const button = (text) => all().find((n) => n.tagName === "BUTTON" && n.textContent === text);
+  const q = () => w.api.state().project.videos[0].clips[0].questions[0];
+  await button("Audio").click(); await button("Visual").click(); await button("Text").click();
+  assert.deepEqual(["Speech content", "Prosody", "Environmental Sound", "Voice Characteristics", "Vocalization", "Scene", "Action", "Event", "Body Gesture", "Facial Expression", "Gaze", "Human Status & Appearance", "Object", "Subtitles", "Written language"].filter((label) => !button(label)), []);
+  assert.match(button("Action").title, /intentional or goal-directed/);
+  assert.match(button("Event").title, /need not be intentional/);
+  assert.match(button("Body Gesture").title, /does not change the physical world/);
+  assert.match(button("Gaze").title, /head movement/);
+  assert.match(button("Written language").title, /not transcription/);
+  assert.ok(all().some((n) => /Scene: the whole setting; Object: one thing in it/.test(n.textContent)));
+  await button("Event").click();
+  await button("+ Add evidence").click();
+  assert.equal(q().annotations[0].cue, "event", "a new line takes the first selected cue");
+  const pick = labelled("Evidence 1 function category");
+  assert.deepEqual(pick.children.map((o) => o.value).slice(1, 3), ["Indicates a person referent", "Indicates an object referent"]);
+  assert.equal(pick.children.length, 13);
+  assert.match(pick.children.find((o) => o.value === "Triggers …").title, /immediate reaction/);
+  pick.value = "Indicates an object referent"; await pick.fire("change");
+  assert.equal(q().annotations[0].function, "Indicates an object referent");
+  assert.equal(pick.value, "", "the picker resets after inserting");
+  pick.value = "Elicits …"; await pick.fire("change");
+  assert.equal(q().annotations[0].function, "Indicates an object referent; Elicits ", "an open category leaves its verb to complete");
+  assert.equal(w.document.activeElement, labelled("Evidence 1 function"));
+  assert.match(labelled("Evidence 1 function").placeholder, /Indicates an object referent/);
+  assert.ok(all().some((n) => /more abstract, generalizable level than the evidence description/.test(n.textContent)));
+});
+
 test("a playhead within half a millisecond of the clip end adds no empty span (issue #15)", async () => {
   const w = workspace();
   w.api.addVideo("M7lc1UVf-VE"); w.resolveAPI(); await w.flush(); w.instances.at(-1).ready();
