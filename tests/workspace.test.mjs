@@ -696,7 +696,7 @@ test("clips record their annotator, keep it across edits and profile changes, an
   assert.equal(w.node("clips-body").children[0].children.length, 5, "the clips table has no annotator column");
   await w.api.exportProject();
   const exported = core.validateProject(w.exports[0]);
-  assert.equal(exported.schema_version, "1.4");
+  assert.equal(exported.schema_version, "1.5");
   assert.equal(exported.videos[0].clips[0].annotator.name, "Nan");
 });
 
@@ -726,6 +726,64 @@ test("library filters narrow the video list without changing the project or the 
   assert.deepEqual(visibleIds(), ["dQw4w9WgXcQ"]);
   assert.equal(w.api.state().project.videos.length, 3);
   assert.equal(w.api.state().project.videos.find((v) => v.id === w.api.state().activeId).video_id, "dQw4w9WgXcQ");
+});
+
+test("scenario categories are chosen in the clip form, survive drafts and edits, and show, search and filter clips", async () => {
+  const w = workspace();
+  w.api.addVideo("M7lc1UVf-VE");
+  const chips = () => w.node("clip-scenarios").children;
+  const chip = (label) => chips().find((c) => c.textContent === label);
+  const pressed = () => chips().filter((c) => c.attributes["aria-pressed"] === "true").map((c) => c.textContent);
+  const video = () => w.api.state().project.videos[0];
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  assert.equal(chips().length, 12);
+  assert.match(chip("Food & Dining").title, /cooking competitions/);
+  assert.match(html, /id="clip-scenarios-help">[^<]*avoid unnecessary labels[^<]*No suitable scenario label/);
+  await chip("Food & Dining").click(); await chip("Everyday Problems & Unexpected Situations").click();
+  assert.deepEqual(pressed(), ["Everyday Problems & Unexpected Situations", "Food & Dining"], "chips keep the Doc's order");
+  const restored = workspace([...w.storage]);
+  assert.deepEqual(restored.node("clip-scenarios").children.filter((c) => c.attributes["aria-pressed"] === "true").map((c) => c.dataset.scenario), ["everyday_problems", "food_dining"], "an unsaved selection is kept with the draft");
+  w.fill("0", "10", "dinner goes wrong", "", "R9-01"); w.api.saveClip();
+  assert.deepEqual(plain(video().clips[0].scenarios), ["everyday_problems", "food_dining"]);
+  assert.deepEqual(pressed(), [], "the form resets after saving");
+  w.fill("20", "30", "no label fits; describe it here"); w.api.saveClip();
+  assert.deepEqual(plain(video().clips[1].scenarios), [], "an empty selection is allowed");
+
+  const rows = w.node("clips-body").children;
+  assert.match(rows[0].textContent, /Everyday Problems & Unexpected SituationsFood & Dining/);
+  w.node("qa-clip-select").value = video().clips[0].id; await w.node("qa-clip-select").fire("change");
+  assert.match(w.node("qa-context").textContent, /^R9-01 · .* · Everyday Problems & Unexpected Situations; Food & Dining · 0 questions$/);
+  w.node("clips-search").value = "dining"; await w.node("clips-search").fire("input");
+  assert.equal(w.node("clips-body").children.length, 1);
+  w.node("clips-search").value = ""; await w.node("clips-search").fire("input");
+
+  await w.api.editClip(video().clips[0]);
+  assert.deepEqual(pressed(), ["Everyday Problems & Unexpected Situations", "Food & Dining"], "editing loads the clip's scenarios");
+  w.api.saveClip();
+  assert.deepEqual(plain(video().clips[0].scenarios), ["everyday_problems", "food_dining"], "saving an edit keeps them");
+  await w.api.editClip(video().clips[0]);
+  await chip("Food & Dining").click();
+  const pending = w.api.editClip(video().clips[1]);
+  assert.equal(w.node("confirm-dialog").open, true, "a changed scenario makes the edit unsaved");
+  await w.confirm(false); await pending;
+  w.api.saveClip();
+  assert.deepEqual(plain(video().clips[0].scenarios), ["everyday_problems"]);
+
+  w.api.addVideo("jNQXAC9IVRw"); w.fill("0", "5", "b"); w.api.saveClip();
+  const visibleIds = () => w.node("video-list").children.map((row) => row.dataset.videoId).filter(Boolean)
+    .map((id) => w.api.state().project.videos.find((v) => v.id === id).video_id);
+  assert.deepEqual(w.node("library-scenario").children.map((o) => o.value).slice(0, 2), ["", "social_personal"]);
+  w.node("library-scenario").value = "everyday_problems"; await w.node("library-scenario").fire("change");
+  assert.deepEqual(visibleIds(), ["M7lc1UVf-VE"]);
+  w.node("library-scenario").value = "none"; await w.node("library-scenario").fire("change");
+  assert.deepEqual(visibleIds(), ["M7lc1UVf-VE", "jNQXAC9IVRw"], "both videos have a clip without a scenario");
+  w.node("library-scenario").value = "food_dining"; await w.node("library-scenario").fire("change");
+  assert.deepEqual(visibleIds(), []);
+  await w.node("clear-library-filters").click();
+  assert.equal(w.node("library-scenario").value, "");
+  await w.api.exportProject();
+  assert.deepEqual(w.exports[0].videos[0].clips[0].scenarios, ["everyday_problems"]);
+  assert.deepEqual(core.validateProject(w.exports[0]).videos[1].clips[0].scenarios, []);
 });
 
 test("imported JSON files stay separate projects that a selector switches between and removes", async () => {
@@ -956,7 +1014,7 @@ test("evidence lines take a cue, content, playhead or typed spans, guard their c
   await button("Visual").click();
   assert.deepEqual(plain(q().required_modalities), ["audio", "visual"], "a modality used by evidence cannot be deselected");
   assert.equal(w.node("toast").hidden, false);
-  await button("Gesture").click();
+  await button("Body Gesture").click();
   assert.ok(q().evidence_cues.includes("gesture"), "a cue used by evidence cannot be deselected");
 
   await button("Mark Ready").click();
@@ -981,7 +1039,12 @@ test("evidence lines take a cue, content, playhead or typed spans, guard their c
   assert.equal(q().status, "ready");
   labelled("Time base for copied annotation").value = "clip"; await labelled("Time base for copied annotation").fire("change");
   await button("Copy as team text").click();
-  assert.equal(w.clipboard[0], "Annotation:\n(gesture): Man points at the jar [time_span: 00:02 ~ 00:10] & [time_span: 00:20 ~ 00:23]\nFunction of non-speech content to communication:\n(gesture) identifies the referent");
+  assert.equal(w.clipboard[0], "Annotation:\n[00:02.346–00:10.000] [00:20.000–00:22.500] (gesture): Man points at the jar\nFunction of Non-Speech Content Modalities:\n(gesture): identifies the referent");
+  await button("Copy in time_span format").click();
+  assert.equal(w.clipboard[1], "Annotation:\n(gesture): Man points at the jar [time_span: 00:02 ~ 00:10] & [time_span: 00:20 ~ 00:23]\nFunction of non-speech content to communication:\n(gesture) identifies the referent");
+  labelled("Time base for copied annotation").value = "source"; await labelled("Time base for copied annotation").fire("change");
+  await button("Copy as team text").click();
+  assert.match(w.clipboard[2], /^Annotation:\n\[00:12\.346–00:20\.000\] \[00:30\.000–00:32\.500\] \(gesture\)/, "original-video time is the default base");
 
   const clip = w.api.state().project.videos[0].clips[0];
   await w.api.editClip(clip); w.fill("15", "40", "clip"); w.api.saveClip();
@@ -992,10 +1055,45 @@ test("evidence lines take a cue, content, playhead or typed spans, guard their c
 
   await w.api.exportProject();
   const exported = core.validateProject(w.exports[0]);
-  assert.equal(exported.schema_version, "1.4");
+  assert.equal(exported.schema_version, "1.5");
   assert.equal(exported.videos[0].clips[0].questions[0].annotations[0].function, "identifies the referent");
   await labelled("Remove evidence 1").click();
   assert.deepEqual(plain(q().annotations), []);
+});
+
+test("cue chips explain the Doc's modality elements and function categories insert editable text", async () => {
+  const w = workspace();
+  w.api.addVideo("M7lc1UVf-VE");
+  w.fill("10", "40", "clip"); w.api.saveClip();
+  await w.node("qa-add").click();
+  const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
+  const all = () => descendants(w.node("qa-editor"));
+  const labelled = (label) => all().find((n) => n.attributes["aria-label"] === label);
+  const button = (text) => all().find((n) => n.tagName === "BUTTON" && n.textContent === text);
+  const q = () => w.api.state().project.videos[0].clips[0].questions[0];
+  await button("Audio").click(); await button("Visual").click(); await button("Text").click();
+  assert.deepEqual(["Speech content", "Prosody", "Environmental Sound", "Voice Characteristics", "Vocalization", "Scene", "Action", "Event", "Body Gesture", "Facial Expression", "Gaze", "Human Status & Appearance", "Object", "Subtitles", "Written language"].filter((label) => !button(label)), []);
+  assert.match(button("Action").title, /intentional or goal-directed/);
+  assert.match(button("Event").title, /need not be intentional/);
+  assert.match(button("Body Gesture").title, /does not change the physical world/);
+  assert.match(button("Gaze").title, /head movement/);
+  assert.match(button("Written language").title, /not transcription/);
+  assert.ok(all().some((n) => /Scene: the whole setting; Object: one thing in it/.test(n.textContent)));
+  await button("Event").click();
+  await button("+ Add evidence").click();
+  assert.equal(q().annotations[0].cue, "event", "a new line takes the first selected cue");
+  const pick = labelled("Evidence 1 function category");
+  assert.deepEqual(pick.children.map((o) => o.value).slice(1, 3), ["Indicates a person referent", "Indicates an object referent"]);
+  assert.equal(pick.children.length, 13);
+  assert.match(pick.children.find((o) => o.value === "Triggers …").title, /immediate reaction/);
+  pick.value = "Indicates an object referent"; await pick.fire("change");
+  assert.equal(q().annotations[0].function, "Indicates an object referent");
+  assert.equal(pick.value, "", "the picker resets after inserting");
+  pick.value = "Elicits …"; await pick.fire("change");
+  assert.equal(q().annotations[0].function, "Indicates an object referent; Elicits ", "an open category leaves its verb to complete");
+  assert.equal(w.document.activeElement, labelled("Evidence 1 function"));
+  assert.match(labelled("Evidence 1 function").placeholder, /Indicates an object referent/);
+  assert.ok(all().some((n) => /more abstract, generalizable level than the evidence description/.test(n.textContent)));
 });
 
 test("a playhead within half a millisecond of the clip end adds no empty span (issue #15)", async () => {

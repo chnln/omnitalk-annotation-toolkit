@@ -1,7 +1,7 @@
 {
   "_comment": "Run through both validateProject (core.js) and validate_export (downloads.py). Each case applies set = [[path, value], ...] to a copy of base. {\"$repeat\": [text, count]} expands to a long string.",
   "base": {
-    "schema_version": "1.4",
+    "schema_version": "1.5",
     "project_id": "00000000-0000-4000-8000-000000000001",
     "project_name": "Fixture",
     "annotator": { "id": "", "name": "" },
@@ -22,6 +22,7 @@
         "end_seconds": 14.25,
         "note": "",
         "tags": [],
+        "scenarios": [],
         "annotator": { "id": "", "name": "" },
         "subtitle_status": "unknown",
         "created_at": "2026-01-01T00:00:00.000Z",
@@ -62,7 +63,12 @@
     "note": ["videos", 0, "clips", 0, "note"],
     "project_id": ["project_id"],
     "video_record_id": ["videos", 0, "id"],
-    "correct_option_id": ["videos", 0, "clips", 0, "questions", 0, "correct_option_id"]
+    "correct_option_id": ["videos", 0, "clips", 0, "questions", 0, "correct_option_id"],
+    "schema_version": ["schema_version"],
+    "scenarios": ["videos", 0, "clips", 0, "scenarios"],
+    "modalities": ["videos", 0, "clips", 0, "questions", 0, "required_modalities"],
+    "cues": ["videos", 0, "clips", 0, "questions", 0, "evidence_cues"],
+    "evidence_cue": ["videos", 0, "clips", 0, "questions", 0, "annotations", 0, "cue"]
   },
   "cases": [
     { "name": "unmodified base", "valid": true, "set": [] },
@@ -107,6 +113,26 @@
     { "name": "UUID with fullwidth digits", "valid": false, "set": [["project_id", "００００００００-0000-4000-8000-000000000001"]] },
     { "name": "numeric UUID", "valid": false, "set": [["project_id", 1]] },
     { "name": "IDs differing only by case are duplicates", "valid": false, "set": [["project_id", "ABCDEF00-0000-4000-8000-000000000001"], ["video_record_id", "abcdef00-0000-4000-8000-000000000001"]] },
-    { "name": "correct answer matches an option ID case-insensitively", "valid": true, "set": [["correct_option_id", "00000000-0000-4000-8000-00000000000A"]] }
+    { "name": "correct answer matches an option ID case-insensitively", "valid": true, "set": [["correct_option_id", "00000000-0000-4000-8000-00000000000A"]] },
+
+    { "name": "two scenario categories", "valid": true, "set": [["scenarios", ["food_dining", "everyday_problems"]]] },
+    { "name": "all twelve scenario categories", "valid": true, "set": [["scenarios", ["social_personal", "everyday_problems", "food_dining", "household_domestic", "travel_navigation", "education_training", "work_professional", "entertainment_recreation_media", "health_wellbeing", "public_service", "institutional_formal", "safety_emergency"]]] },
+    { "name": "duplicate scenario category", "valid": false, "set": [["scenarios", ["food_dining", "food_dining"]]] },
+    { "name": "unknown scenario category", "valid": false, "set": [["scenarios", ["cooking"]]] },
+    { "name": "scenario given by its display name", "valid": false, "set": [["scenarios", ["Food & Dining"]]] },
+    { "name": "scenarios as a string", "valid": false, "set": [["scenarios", "food_dining"]] },
+    { "name": "scenarios null", "valid": false, "set": [["scenarios", null]] },
+    { "name": "numeric scenario", "valid": false, "set": [["scenarios", [3]]] },
+    { "name": "1.4 file ignores a scenarios field", "valid": true, "set": [["schema_version", "1.4"], ["scenarios", "anything"]] },
+
+    { "name": "new 1.5 visual cues", "valid": true, "set": [["cues", ["scene", "action", "event", "object", "gesture"]], ["evidence_cue", "event"]] },
+    { "name": "new 1.5 audio cue", "valid": true, "set": [["modalities", ["audio"]], ["cues", ["voice_characteristics"]], ["evidence_cue", "voice_characteristics"]] },
+    { "name": "1.5 rejects the split action_event cue", "valid": false, "set": [["cues", ["action_event"]], ["evidence_cue", "action_event"]] },
+    { "name": "1.5 rejects the split object_scene cue", "valid": false, "set": [["cues", ["gesture", "object_scene"]]] },
+    { "name": "1.5 cue needs its parent modality", "valid": false, "set": [["cues", ["gesture", "voice_characteristics"]]] },
+    { "name": "1.4 file with action_event and object_scene", "valid": true, "set": [["schema_version", "1.4"], ["cues", ["action_event", "object_scene"]], ["evidence_cue", "object_scene"]] },
+    { "name": "1.4 file listing action_event and action together", "valid": true, "set": [["schema_version", "1.4"], ["cues", ["action_event", "action"]], ["evidence_cue", "action_event"]] },
+    { "name": "1.4 evidence cue must still be listed", "valid": false, "set": [["schema_version", "1.4"], ["cues", ["action"]], ["evidence_cue", "action_event"]] },
+    { "name": "1.4 legacy cue needs its parent modality", "valid": false, "set": [["schema_version", "1.4"], ["modalities", ["audio"]], ["cues", ["action_event"]], ["evidence_cue", "action_event"]] }
   ]
 }

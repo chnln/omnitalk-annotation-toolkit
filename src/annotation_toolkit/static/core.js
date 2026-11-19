@@ -1,6 +1,6 @@
 /** Pure annotation data helpers. No network, storage, or DOM access. */
-export const SCHEMA_VERSION = "1.4";
-const LEGACY_VERSIONS = ["1.0", "1.1", "1.2", "1.3"];
+export const SCHEMA_VERSION = "1.5";
+const LEGACY_VERSIONS = ["1.0", "1.1", "1.2", "1.3", "1.4"];
 export const STORAGE_KEY = "omnitalk.annotation.project.v1";
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
@@ -121,12 +121,38 @@ function refId(value) {
   return ref;
 }
 
-function clipFields({ ref_id = "", start_seconds, end_seconds, note = "", tags: clipTags = [] }, duration) {
+/** The team's Scenario Category labels (Annotation Labels tab), in the Doc's table order. */
+export const SCENARIOS = {
+  social_personal: "Social & Personal Interactions",
+  everyday_problems: "Everyday Problems & Unexpected Situations",
+  food_dining: "Food & Dining",
+  household_domestic: "Household & Domestic Activities",
+  travel_navigation: "Travel & Navigation",
+  education_training: "Education & Training",
+  work_professional: "Work & Professional Activities",
+  entertainment_recreation_media: "Entertainment, Recreation & Media",
+  health_wellbeing: "Health & Well-being",
+  public_service: "Public & Service Interactions",
+  institutional_formal: "Institutional & Formal Interactions",
+  safety_emergency: "Safety & Emergency Situations",
+};
+
+/** Distinct known scenario IDs, in the given order; [] when no label applies or none was chosen yet. */
+function scenarios(value) {
+  if (!Array.isArray(value)) throw new Error('Clip scenarios must be an array of scenario categories; use [] when none applies.');
+  for (const item of value) {
+    if (typeof item !== "string" || !Object.hasOwn(SCENARIOS, item)) throw new Error(`Unknown scenario category: ${JSON.stringify(item)}.`);
+  }
+  if (new Set(value).size !== value.length) throw new Error("A clip lists the same scenario category twice.");
+  return [...value];
+}
+
+function clipFields({ ref_id = "", start_seconds, end_seconds, note = "", tags: clipTags = [], scenarios: clipScenarios = [] }, duration) {
   const start = seconds(start_seconds, "Clip start");
   const end = seconds(end_seconds, "Clip end");
   if (end <= start) throw new Error("The clip must end at least 1 millisecond after its start.");
   if (duration !== null && end > seconds(duration, "Video duration")) throw new Error("The clip end cannot exceed the video duration.");
-  return { ref_id: refId(ref_id), start_seconds: start, end_seconds: end, note: text(note, "Note", 20000), tags: tags(clipTags) };
+  return { ref_id: refId(ref_id), start_seconds: start, end_seconds: end, note: text(note, "Note", 20000), tags: tags(clipTags), scenarios: scenarios(clipScenarios) };
 }
 
 /** Clips keep a copy of the annotator who created them; later profile edits do not rewrite authorship. */
@@ -218,11 +244,14 @@ export function validateProject(data) {
         object(clip, "Clip");
         if (clip.note === undefined || clip.tags === undefined) throw new Error("Each clip must contain note text and a tags array.");
         // Reference IDs arrived in 1.3; older clips have none, and notes are never parsed for one.
-        const hasRefId = ["1.3", SCHEMA_VERSION].includes(data.schema_version);
+        const hasRefId = ["1.3", "1.4", SCHEMA_VERSION].includes(data.schema_version);
         if (hasRefId && clip.ref_id === undefined) throw new Error('Each clip must contain ref_id text; use "" when there is none.');
+        // Scenario categories arrived in 1.5; older clips start unlabelled.
+        const hasScenarios = data.schema_version === SCHEMA_VERSION;
+        if (hasScenarios && clip.scenarios === undefined) throw new Error("Each clip must contain a scenarios array; use [] when none applies.");
         return {
           id: recordId(clip.id, "Clip ID"),
-          ...clipFields({ ...clip, ref_id: hasRefId ? clip.ref_id : "" }, duration),
+          ...clipFields({ ...clip, ref_id: hasRefId ? clip.ref_id : "", scenarios: hasScenarios ? clip.scenarios : [] }, duration),
           annotator: legacyAuthor ? annotatorCopy(legacyAuthor) : annotatorRecord(clip.annotator, "Clip annotator"),
           ...validateClipQA(clip, data.schema_version, recordId),
           created_at: timestamp(clip.created_at, "Clip creation time"),
@@ -235,12 +264,51 @@ export function validateProject(data) {
 }
 
 
-/** Evidence taxonomy: broad sources first, optional specific cues second. */
+/**
+ * Evidence taxonomy: broad sources first, optional specific cues second. Cue labels and order follow the Doc's
+ * "Modality Elements" list. Written language (scene_text) stays under Text, as in earlier schemas, although the Doc
+ * lists it with the Visual signals; subtitles are a toolkit cue the Doc's list does not have.
+ */
 export const MODALITIES = {
-  audio: { label: "Audio", cues: { speech_content: "Speech content", vocalization: "Vocalization", prosody: "Prosody", environmental_sounds: "Environmental sounds" } },
-  visual: { label: "Visual", cues: { action_event: "Action / Event", gesture: "Gesture", facial_expression: "Facial expression", gaze: "Gaze", person_appearance: "Person / Appearance", object_scene: "Object / Scene" } },
-  text: { label: "Text", cues: { subtitles: "Subtitles", scene_text: "Scene text" } },
+  audio: { label: "Audio", cues: { speech_content: "Speech content", prosody: "Prosody", environmental_sounds: "Environmental Sound", voice_characteristics: "Voice Characteristics", vocalization: "Vocalization" } },
+  visual: { label: "Visual", cues: { scene: "Scene", action: "Action", event: "Event", gesture: "Body Gesture", facial_expression: "Facial Expression", gaze: "Gaze", person_appearance: "Human Status & Appearance", object: "Object" } },
+  text: { label: "Text", cues: { subtitles: "Subtitles", scene_text: "Written language" } },
 };
+/** One-line definitions from the Doc's Modality Elements list, shown as tooltips. */
+export const CUE_HELP = {
+  speech_content: "What is said.",
+  prosody: "How it is said: rate (how fast or slow people speak), loudness, etc.",
+  environmental_sounds: "Sound from objects or animals, e.g. a car, a tree, a bottle, a cat.",
+  voice_characteristics: "Voice characteristics or voice source: whose voice it is, usually to tell speakers apart.",
+  vocalization: "Non-verbal vocalization, e.g. laughter, “hmm”, “um”, “ah”, a whisper, non-verbal exclaiming.",
+  scene: "The broader physical or situational context of the communication, e.g. a conference, a roundtable discussion, a living room, a classroom. A single thing in it is an Object.",
+  action: "An activity or behavior, usually by a person and typically intentional or goal-directed, e.g. picking up a phone, opening a door, handing over an object.",
+  event: "An occurrence or change in the environment that need not be intentional, e.g. someone tripping, an object falling, a plane flying overhead.",
+  gesture: "Body gesture: primarily serves a communicative function and typically does not change the physical world, unlike an Action.",
+  facial_expression: "Facial expression.",
+  gaze: "The direction, target and movement of a person's attention, shown by eye orientation and gaze shifts; includes head movement closely related to gaze.",
+  person_appearance: "Human status and appearance.",
+  object: "An object; the setting as a whole is a Scene.",
+  subtitles: "Subtitles or captions shown in the video, only when the answer needs them. Not in the Doc's list, which excludes transcription.",
+  scene_text: "Written language in the video, e.g. a phone message or written notes; not transcription. The Doc lists it with the Visual signals.",
+};
+/** Abstract function categories from the Doc; "…" marks a verb the annotator completes, e.g. "Elicits a question". */
+export const FUNCTION_SUGGESTIONS = [
+  ["Indicates a person referent", ""],
+  ["Indicates an object referent", ""],
+  ["Indicates an event/action referent", ""],
+  ["Indicates a location or spatial referent", ""],
+  ["Indicates the speaker", ""],
+  ["Indicates the addressee", ""],
+  ["Indicates the communication channel", "e.g. phone call, written notes, phone message, translation app"],
+  ["Elicits …", "The action or signal invites or seeks a verbal response from another person, e.g. raising a hand for a question."],
+  ["Triggers …", "An immediate reaction; need not be intentional."],
+  ["Causes …", "Only when the causal relationship is particularly clear."],
+  ["Explains …", "Provides contextual or motivational information, without implying that the signal directly caused the speech."],
+  ["Prompts the subsequent speech", "The general term when Elicits, Triggers, Causes and Explains do not fit."],
+];
+/** Cues split in 1.5. Older files migrate to these defaults; an old action_event may be an Event, an old object_scene a Scene. */
+export const LEGACY_CUE_RENAMES = { action_event: "action", object_scene: "object" };
 export const SUBTITLE_STATUSES = { unknown: "Not reviewed", none: "No subtitles", present: "With subtitles", masked: "Subtitle masked" };
 export function createQuestion() {
   const time = now();
@@ -251,8 +319,9 @@ export function createQuestion() {
 /** Category names used in the team document's Annotation sections. */
 export const TEAM_CUE_LABELS = {
   speech_content: "speech content", vocalization: "vocalization", prosody: "prosody", environmental_sounds: "environmental sound",
-  action_event: "action", gesture: "gesture", facial_expression: "facial expression", gaze: "gaze",
-  person_appearance: "human appearance", object_scene: "object/scene", subtitles: "subtitles", scene_text: "written content",
+  voice_characteristics: "voice characteristics", scene: "scene", action: "action", event: "event", gesture: "gesture",
+  facial_expression: "facial expression", gaze: "gaze", person_appearance: "human appearance", object: "object",
+  subtitles: "subtitles", scene_text: "written content",
 };
 const ALL_CUES = Object.fromEntries(Object.entries(MODALITIES).flatMap(([modality, group]) => Object.keys(group.cues).map(cue => [cue, modality])));
 /** The modality a cue belongs to, e.g. "gesture" -> "visual". */
@@ -271,7 +340,43 @@ export function spansOutside(clip, start, end) {
   return (clip.questions || []).flatMap(q => (q.annotations || []).flatMap(e => e.spans)).filter(s => s.start_seconds < start || s.end_seconds > end).length;
 }
 
-/** Render a question's evidence in the team document's Annotation format. */
+/** Cue names as written in the team Doc's Annotation rows (Data_Leixin): mostly hyphenated, lower case. */
+export const TEAM_ROW_LABELS = {
+  speech_content: "speech-content", prosody: "prosody", environmental_sounds: "environmental-sound",
+  voice_characteristics: "voice-characteristics", vocalization: "non-speech vocalization",
+  scene: "scene", action: "action", event: "event", gesture: "gesture", facial_expression: "facial-expression",
+  gaze: "gaze", person_appearance: "human-appearance", object: "object", subtitles: "subtitles", scene_text: "written-content",
+};
+
+/**
+ * Render a question's evidence as the team Doc's Annotation rows, "[MM:SS.mmm–MM:SS.mmm] (label): description":
+ * one row per evidence line in temporal order, its spans side by side, then a Function block for the non-speech
+ * lines that have one and the clip's Scenario Category. A non-speech label used on several lines is numbered
+ * ("action 1", "action 2") so each Function line names its row.
+ */
+export function formatAnnotationRows(question, clip, { clipTime = false } = {}) {
+  const offset = clipTime ? clip.start_seconds : 0;
+  const time = (value) => formatTime(Math.max(0, value - offset), { milliseconds: true });
+  const speech = (e) => e.cue === "speech_content";
+  const rows = question.annotations.map((e, index) => ({ e, index, spans: [...e.spans].sort((a, b) => a.start_seconds - b.start_seconds || a.end_seconds - b.end_seconds) }));
+  // Earliest span first; lines without spans keep their order at the end.
+  rows.sort((a, b) => (!a.spans.length - !b.spans.length) || (a.spans.length && (a.spans[0].start_seconds - b.spans[0].start_seconds || a.spans[0].end_seconds - b.spans[0].end_seconds)) || a.index - b.index);
+  const totals = {};
+  for (const { e } of rows) if (!speech(e)) totals[e.cue] = (totals[e.cue] || 0) + 1;
+  const seen = {};
+  for (const row of rows) {
+    const base = TEAM_ROW_LABELS[row.e.cue] ?? row.e.cue;
+    row.label = !speech(row.e) && totals[row.e.cue] > 1 ? `${base} ${seen[row.e.cue] = (seen[row.e.cue] || 0) + 1}` : base;
+  }
+  const lines = ["Annotation:", ...rows.map(({ e, spans, label }) => [...spans.map((s) => `[${time(s.start_seconds)}–${time(s.end_seconds)}]`), `(${label}):`, e.content.trim()].filter(Boolean).join(" "))];
+  const functions = rows.filter(({ e }) => !speech(e) && e.function.trim());
+  if (functions.length) lines.push("Function of Non-Speech Content Modalities:", ...functions.map(({ e, label }) => `(${label}): ${e.function.trim()}`));
+  const scenarios = (clip.scenarios || []).map((id) => SCENARIOS[id] ?? id);
+  if (scenarios.length) lines.push(`Scenario Category: ${scenarios.join("; ")}`);
+  return lines.join("\n");
+}
+
+/** Render a question's evidence in the older time_span format: "(label): description [time_span: MM:SS ~ MM:SS]". */
 export function formatAnnotation(question, clip, { clipTime = false } = {}) {
   const offset = clipTime ? clip.start_seconds : 0;
   const label = (cue) => TEAM_CUE_LABELS[cue] ?? cue;
@@ -316,10 +421,17 @@ export function validateQuestion(q, recordId = (value) => {
     if (!Array.isArray(value) || value.length > allowed.length || new Set(value).size !== value.length || value.some(v => !allowed.includes(v))) throw new Error(`Invalid ${label}.`);
     return [...value];
   };
+  // Files before 1.5 may still use the cues that 1.5 split; they are renamed to the defaults and de-duplicated.
+  const legacy = version !== SCHEMA_VERSION;
+  const known = (cue) => Boolean(cueModality(cue)) || (legacy && Object.hasOwn(LEGACY_CUE_RENAMES, cue));
+  const migrate = (cue) => legacy && Object.hasOwn(LEGACY_CUE_RENAMES, cue) ? LEGACY_CUE_RENAMES[cue] : cue;
   const modalities = selection(q.required_modalities, Object.keys(MODALITIES), "required modalities");
-  const cues = selection(q.evidence_cues, modalities.flatMap(m => Object.keys(MODALITIES[m].cues)), "evidence cues or parent modality");
+  const allowed = Object.keys(ALL_CUES).concat(legacy ? Object.keys(LEGACY_CUE_RENAMES) : []).filter(cue => modalities.includes(cueModality(migrate(cue))));
+  const listed = selection(q.evidence_cues, allowed, "evidence cues or parent modality");
+  const cues = [...new Set(listed.map(migrate))];
   // Evidence spans arrived in 1.4; older questions migrate with none.
-  const annotations = version === SCHEMA_VERSION ? validateEvidence(q.annotations, cues, bounds, recordId) : [];
+  const annotations = ["1.4", SCHEMA_VERSION].includes(version)
+    ? validateEvidence(q.annotations, listed, bounds, recordId, known).map(e => ({ ...e, cue: migrate(e.cue) })) : [];
   const result = { id, prompt: text(q.prompt, "Question", 10000), options, correct_option_id: correct,
     required_modalities: modalities, evidence_cues: cues, annotations, rationale: text(q.rationale, "Rationale", 20000), status: q.status,
     created_at: timestamp(q.created_at, "Question creation time"), updated_at: timestamp(q.updated_at, "Question update time") };
@@ -327,11 +439,11 @@ export function validateQuestion(q, recordId = (value) => {
   if (result.status === "ready" && error) throw new Error(error);
   return result;
 }
-function validateEvidence(value, cues, bounds, recordId) {
+function validateEvidence(value, cues, bounds, recordId, known = cueModality) {
   if (!Array.isArray(value) || value.length > LIMITS.evidencePerQuestion) throw new Error(`Question annotations must be an array with at most ${LIMITS.evidencePerQuestion} evidence lines.`);
   return value.map((e) => {
     object(e, "Evidence");
-    if (!cueModality(e.cue)) throw new Error("Invalid evidence cue.");
+    if (!known(e.cue)) throw new Error("Invalid evidence cue.");
     if (!cues.includes(e.cue)) throw new Error("Each evidence line's cue must also be selected in the question's evidence cues.");
     if (!Array.isArray(e.spans) || e.spans.length > LIMITS.spansPerEvidence) throw new Error(`Evidence spans must be an array with at most ${LIMITS.spansPerEvidence} spans.`);
     const spans = e.spans.map((s) => {
@@ -386,12 +498,19 @@ export function refIdConflicts(videos, ref, exceptClipId = null) {
   return videos.flatMap((video) => video.clips).filter((clip) => clip.id !== exceptClipId && clip.ref_id.toLocaleLowerCase() === needle);
 }
 
-/** Keep videos matching every active filter: title/YouTube ID/reference ID text, annotator key, and question status. */
-export function filterVideos(videos, { query = "", annotator = "", status = "" } = {}) {
+/** Library scenario filter value for videos with a clip that has no scenario category yet. */
+export const NO_SCENARIO = "none";
+
+/**
+ * Keep videos matching every active filter: title/YouTube ID/reference ID text, annotator key, question status,
+ * and scenario (a clip with that category, or NO_SCENARIO for a clip with none).
+ */
+export function filterVideos(videos, { query = "", annotator = "", status = "", scenario = "" } = {}) {
   const needle = query.trim().toLocaleLowerCase();
   return videos.filter((video) => {
     if (needle && !`${video.title} ${video.video_id} ${videoRefIds(video).join(" ")}`.toLocaleLowerCase().includes(needle)) return false;
     if (annotator && !video.clips.some((clip) => annotatorKey(clip.annotator) === annotator)) return false;
+    if (scenario && !video.clips.some((clip) => scenario === NO_SCENARIO ? !clip.scenarios.length : clip.scenarios.includes(scenario))) return false;
     const questions = video.clips.flatMap((clip) => clip.questions);
     if (status === "has-drafts") return questions.some((q) => q.status === "draft");
     if (status === "all-ready") return questions.length > 0 && questions.every((q) => q.status === "ready");

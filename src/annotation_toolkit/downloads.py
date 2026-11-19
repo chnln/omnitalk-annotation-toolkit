@@ -27,6 +27,18 @@ MAX_PENDING = 10000
 MEDIA_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
 QUALITIES = ("best", "2160", "1440", "1080", "720", "480", "360")
 DEFAULT_QUALITY = "1080"
+SCHEMA_VERSIONS = ("1.0", "1.1", "1.2", "1.3", "1.4", "1.5")
+# Keep in step with SCENARIOS, MODALITIES and LEGACY_CUE_RENAMES in core.js.
+SCENARIOS = ("social_personal", "everyday_problems", "food_dining", "household_domestic", "travel_navigation",
+             "education_training", "work_professional", "entertainment_recreation_media", "health_wellbeing",
+             "public_service", "institutional_formal", "safety_emergency")
+CUE_TAXONOMY = {
+    "audio": ("speech_content", "prosody", "environmental_sounds", "voice_characteristics", "vocalization"),
+    "visual": ("scene", "action", "event", "gesture", "facial_expression", "gaze", "person_appearance", "object"),
+    "text": ("subtitles", "scene_text"),
+}
+# Files before 1.5 may still use the visual cues that 1.5 split; the browser renames them on import.
+LEGACY_VISUAL_CUES = ("action_event", "object_scene")
 
 
 def default_download_directory():
@@ -449,8 +461,11 @@ def validate_export(data):
 
     obj(data, "Project")
     version = data.get("schema_version")
-    if version not in ("1.0", "1.1", "1.2", "1.3", "1.4"):
-        raise DownloadError("Unsupported annotation schema; expected version 1.0, 1.1, 1.2, 1.3 or 1.4.")
+    if version not in SCHEMA_VERSIONS:
+        raise DownloadError("Unsupported annotation schema; expected version 1.0, 1.1, 1.2, 1.3, 1.4 or 1.5.")
+    taxonomy = dict(CUE_TAXONOMY)
+    if version != "1.5":
+        taxonomy["visual"] = CUE_TAXONOMY["visual"] + LEGACY_VISUAL_CUES
     identifier(data.get("project_id"))
     text(data.get("project_name"), "Project name", 200)
     annotator(data.get("annotator"), "Annotator")
@@ -491,14 +506,20 @@ def validate_export(data):
                 raise DownloadError("Clip tags must be a list with at most 50 entries.")
             for tag in tags:
                 text(tag, "Tag", 100)
-            if version in ("1.3", "1.4"):
+            if version == "1.5":
+                scenarios = clip.get("scenarios")
+                if (not isinstance(scenarios, list)
+                        or any(not isinstance(item, str) or item not in SCENARIOS for item in scenarios)
+                        or len(set(scenarios)) != len(scenarios)):
+                    raise DownloadError("Clip scenarios must be a list of distinct known scenario categories.")
+            if version in ("1.3", "1.4", "1.5"):
                 ref_id = clip.get("ref_id")
                 text(ref_id, "Reference ID", 100)
                 if ref_id != ref_id.strip() or "\n" in ref_id or "\r" in ref_id:
                     raise DownloadError("Reference ID must be a single trimmed line.")
-            if version in ("1.2", "1.3", "1.4"):
+            if version in ("1.2", "1.3", "1.4", "1.5"):
                 annotator(clip.get("annotator"), "Clip annotator")
-            if version in ("1.1", "1.2", "1.3", "1.4"):
+            if version in ("1.1", "1.2", "1.3", "1.4", "1.5"):
                 if clip.get("subtitle_status") not in ("unknown", "none", "present", "masked"):
                     raise DownloadError("Invalid subtitle status.")
                 questions = clip.get("questions")
@@ -531,11 +552,6 @@ def validate_export(data):
                         text(option.get("text"), "Option", 5000)
                     if "correct_option_id" not in question or (question["correct_option_id"] is not None and str(question["correct_option_id"]).lower() not in option_ids):
                         raise DownloadError("Correct answer must reference an existing option.")
-                    taxonomy = {
-                        "audio": ("speech_content", "vocalization", "prosody", "environmental_sounds"),
-                        "visual": ("action_event", "gesture", "facial_expression", "gaze", "person_appearance", "object_scene"),
-                        "text": ("subtitles", "scene_text"),
-                    }
                     def selection(value, allowed):
                         if (not isinstance(value, list) or len(value) > len(allowed)
                                 or any(not isinstance(item, str) or item not in allowed for item in value)
@@ -545,7 +561,7 @@ def validate_export(data):
                     selection(modalities, taxonomy)
                     cues = question.get("evidence_cues")
                     selection(cues, [cue for m in modalities for cue in taxonomy[m]])
-                    annotations = question.get("annotations") if version == "1.4" else []
+                    annotations = question.get("annotations") if version in ("1.4", "1.5") else []
                     if not isinstance(annotations, list) or len(annotations) > 50:
                         raise DownloadError("Question annotations must be a list of at most 50 evidence lines.")
                     for evidence in annotations:
