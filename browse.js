@@ -743,7 +743,7 @@ function refreshDetail() {
 
 const SOURCE_HELP = {
   drive: "The uploaded clip; 0:00 is start_time. If Drive asks you to sign in or says you need access, sign in to a Google account that can open the file, or use Open in Drive.",
-  youtube: "The original video, starting at start_time. After you seek it can play past end_time, so watch the clock. If it says the video is unavailable, open the YouTube link instead.",
+  youtube: "The original video. Play clip starts at start_time and pauses at end_time; the green band marks the clip. If it says the video is unavailable, open the YouTube link instead.",
   local: "A clip file from this computer; 0:00 is start_time. Choose the files again after reloading the page.",
 };
 
@@ -763,6 +763,7 @@ function chosenSource(dataset, line, sources) {
 
 function stopVideo() {
   const box = $("browse-video");
+  closeYouTube();
   box?.querySelector?.("video")?.pause?.();
   box?.querySelector(".browse-stage")?.replaceChildren();
   videoKey = null;
@@ -778,6 +779,7 @@ function renderVideo() {
   const key = JSON.stringify([source, sources.driveId, sources.yt?.embed, sources.local?.url, line.data === undefined]);
   if (key === videoKey) return;
   videoKey = key;
+  closeYouTube();
   const tabs = el("div", "source-switch");
   tabs.setAttribute("role", "radiogroup");
   tabs.setAttribute("aria-label", "Video source");
@@ -796,9 +798,10 @@ function renderVideo() {
     tabs.append(tab);
   }
   const stage = el("div", "browse-stage");
+  let clipBar = null;
   if (line.data === undefined) stage.append(el("p", "stage-message", "Fix this line's text to play its clip."));
   else if (source === "drive" && sources.driveId) stage.append(frame(J.drivePreviewUrl(sources.driveId), `Google Drive player: ${sources.clip}.mp4`, "autoplay; fullscreen"));
-  else if (source === "youtube" && sources.yt) stage.append(frame(sources.yt.embed, `YouTube player: ${sources.clip}`, "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"));
+  else if (source === "youtube" && sources.yt) clipBar = youtubePlayer(stage, sources);
   else if (source === "local" && sources.local) {
     const video = el("video");
     video.controls = true;
@@ -819,7 +822,147 @@ function renderVideo() {
   }
   if (sources.driveId) links.append(link("Open in Drive ↗", J.driveViewUrl(sources.driveId)));
   if (sources.local) links.append(el("span", "browse-note", `Local: ${sources.local.name}`));
-  box.replaceChildren(tabs, stage, links, el("p", "browse-note video-help", SOURCE_HELP[source]));
+  box.replaceChildren(...[tabs, stage, clipBar, links, el("p", "browse-note video-help", SOURCE_HELP[source])].filter(Boolean));
+}
+
+/* ---------- YouTube: clip range on a bar, pause at end_time ---------- */
+
+let ytSession = null;
+
+function closeYouTube() {
+  const session = ytSession;
+  ytSession = null;
+  if (!session) return;
+  clearInterval(session.timer);
+  try { session.player?.destroy?.(); } catch { /* The frame may already be gone. */ }
+}
+
+/** The YouTube script API. Polls for it so the Annotate view's own loader and this one do not replace each other's callback. */
+function youTubeApi() {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  const src = "https://www.youtube.com/iframe_api";
+  if (!document.querySelector(`script[src="${src}"]`)) {
+    const script = el("script");
+    script.src = src;
+    script.async = true;
+    document.head.append(script);
+  }
+  return new Promise((resolve, reject) => {
+    const began = Date.now();
+    const timer = setInterval(() => {
+      if (window.YT?.Player) { clearInterval(timer); resolve(window.YT); }
+      else if (Date.now() - began > 15000) { clearInterval(timer); reject(new Error("YouTube did not load")); }
+    }, 100);
+  });
+}
+
+/** Puts the YouTube player in `stage` and returns the bar shown under it. */
+function youtubePlayer(stage, sources) {
+  const { startMs, endMs } = sources.yt;
+  const start = startMs / 1000;
+  const end = endMs === null ? null : endMs / 1000;
+  const origin = /^https?:$/.test(location.protocol) ? `&origin=${encodeURIComponent(location.origin)}` : "";
+  const iframe = frame(sources.yt.player + origin, `YouTube player: ${sources.clip}`, "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share");
+  stage.append(iframe);
+
+  const bar = el("div", "clip-bar");
+  const play = button(end === null ? "Play from start_time" : "Play clip", () => {
+    if (!session.ready) return;
+    session.previous = null;
+    session.aligned = true;
+    session.player.seekTo(start, true);
+    session.player.playVideo();
+  }, "button secondary clip-bar-play");
+  play.disabled = true;
+  const readout = el("span", "mono clip-bar-readout", "Loading the player…");
+  const head = el("div", "clip-bar-head");
+  head.append(play, readout);
+  bar.append(head);
+
+  const track = (className, label) => {
+    const node = el("div", `clip-track ${className}`);
+    node.setAttribute("role", "slider");
+    node.setAttribute("aria-label", label);
+    node.tabIndex = 0;
+    return node;
+  };
+  const seekOn = (node, from, to) => {
+    const go = (seconds) => { if (session.ready) { session.previous = null; session.aligned = true; session.player.seekTo(Math.min(Math.max(seconds, from()), to()), true); } };
+    node.addEventListener("click", (event) => {
+      const box = node.getBoundingClientRect();
+      if (box.width > 0 && to() > from()) go(from() + ((event.clientX - box.left) / box.width) * (to() - from()));
+    });
+    node.addEventListener("keydown", (event) => {
+      const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      if (step && session.ready) { event.preventDefault(); go(session.player.getCurrentTime() + step); }
+    });
+  };
+
+  let clipFill = null;
+  if (end !== null) {
+    const clipTrack = track("clip-track-zoom", "Position in the clip");
+    clipFill = el("span", "clip-track-fill");
+    clipTrack.append(clipFill);
+    seekOn(clipTrack, () => start, () => end);
+    const labels = el("div", "clip-track-labels mono");
+    labels.append(el("span", "", J.formatClock(startMs)), el("span", "clip-track-caption", `Clip · ${((endMs - startMs) / 1000).toFixed(3)} s`), el("span", "", J.formatClock(endMs)));
+    bar.append(clipTrack, labels);
+  }
+  const whole = track("clip-track-whole", "Position in the whole video");
+  const range = el("span", "clip-track-range");
+  const playhead = el("span", "clip-track-playhead");
+  whole.append(range, playhead);
+  seekOn(whole, () => 0, () => session.duration);
+  const wholeLabels = el("div", "clip-track-labels mono");
+  const wholeEnd = el("span", "", "");
+  wholeLabels.append(el("span", "", "00:00:00.000"), el("span", "clip-track-caption", "Whole video · the band is the clip"), wholeEnd);
+  bar.append(whole, wholeLabels);
+
+  const session = { player: null, ready: false, previous: null, aligned: false, duration: 0, timer: null };
+  ytSession = session;
+  const percent = (value) => `${Math.min(100, Math.max(0, value * 100)).toFixed(3)}%`;
+  const tick = () => {
+    if (ytSession !== session || !session.ready) return;
+    let now;
+    let playing;
+    try { now = session.player.getCurrentTime(); playing = session.player.getPlayerState() === 1; session.duration = session.player.getDuration() || session.duration; } catch { return; }
+    if (typeof now !== "number" || !Number.isFinite(now)) return;
+    if (playing && !session.aligned) {
+      // The embed starts on a whole second; move to the exact start_time once playback begins.
+      session.aligned = true;
+      if (now < start && start - now < 1.5) { session.player.seekTo(start, true); now = start; }
+    }
+    if (playing && end !== null && J.crossedClipEnd(session.previous, now, end)) {
+      session.player.pauseVideo();
+      session.player.seekTo(end, true);
+      now = end;
+    }
+    session.previous = now;
+    const inClip = end !== null && now >= start - 0.0005 && now <= end + 0.0005;
+    readout.textContent = `${J.formatClock(now * 1000)}${end === null ? "" : inClip ? ` · clip ${J.formatClock((now - start) * 1000)}` : now < start ? " · before the clip" : " · after the clip"}`;
+    bar.classList.toggle("outside", end !== null && !inClip);
+    if (clipFill) clipFill.style.width = percent((now - start) / (end - start));
+    if (session.duration > 0) {
+      range.style.left = percent(start / session.duration);
+      range.style.width = end === null ? "2px" : `max(3px, ${percent((end - start) / session.duration)})`;
+      playhead.style.left = percent(now / session.duration);
+      wholeEnd.textContent = J.formatClock(session.duration * 1000);
+    }
+  };
+  youTubeApi().then((YT) => {
+    if (ytSession !== session) return;
+    new YT.Player(iframe, { events: { onReady(event) {
+      if (ytSession !== session) return;
+      session.player = event.target;
+      session.ready = true;
+      play.disabled = false;
+      tick();
+    } } });
+    session.timer = setInterval(tick, 50);
+  }).catch(() => {
+    if (ytSession === session) readout.textContent = "The clip bar could not load; the player above still works, but it will not pause at end_time.";
+  });
+  return bar;
 }
 
 function frame(src, title, allow) {
