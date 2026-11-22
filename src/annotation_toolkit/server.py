@@ -138,6 +138,13 @@ class AnnotationHandler(BaseHTTPRequestHandler):
             self._respond(body, "application/json; charset=utf-8", include_body)
             return
 
+        if path.rstrip("/") in ("/browser", "/browse"):  # short addresses for the Browse view
+            self.send_response(HTTPStatus.FOUND)
+            self.send_header("Location", "/?view=browse")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
         if path == "/api/downloads":
             self._json(self.server.downloads.snapshot(), include_body=include_body)
             return

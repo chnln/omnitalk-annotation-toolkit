@@ -27,7 +27,10 @@ class PagesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             output = Path(folder)
             builder.build_site(output)
-            self.assertEqual({p.name for p in output.iterdir()}, {*builder.PUBLIC_FILES, ".nojekyll"})
+            self.assertEqual({p.name for p in output.iterdir()}, {*builder.PUBLIC_FILES, *builder.BROWSE_SHORTCUTS, ".nojekyll"})
+            for name in builder.BROWSE_SHORTCUTS:
+                self.assertEqual([p.name for p in (output / name).iterdir()], ["index.html"])
+                self.assertIn('url=../?view=browse', (output / name / "index.html").read_text())
             html = (output / "index.html").read_text()
             self.assertIn('<body data-mode="static">', html)
             self.assertNotIn('<body data-mode="local">', html)

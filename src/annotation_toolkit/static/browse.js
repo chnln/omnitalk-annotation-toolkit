@@ -1014,4 +1014,6 @@ restore();
 renderFormat();
 setTab(prefs.tab, false);
 renderAll();
-setView(prefs.view, false);
+// A link can open a view directly: ?view=browse (the /browser and /browse shortcuts redirect to it).
+const linkedView = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("view");
+setView(linkedView === "browse" || linkedView === "annotate" ? linkedView : prefs.view, false);

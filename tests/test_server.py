@@ -61,6 +61,11 @@ class AnnotationServerTests(unittest.TestCase):
         self.assertEqual(headers["Referrer-Policy"], "strict-origin-when-cross-origin")
         self.assertEqual(headers["Cache-Control"], "no-cache")
 
+    def test_browse_shortcuts_redirect_to_the_browse_view(self):
+        for path in ("/browser", "/browser/", "/browse"):
+            status, headers, body = self.request(path)
+            self.assertEqual((status, headers["Location"], body), (302, "/?view=browse", b""), path)
+
     def test_javascript_with_query(self):
         status, headers, body = self.request("/app.js?v=1")
         self.assertEqual(status, 200)
