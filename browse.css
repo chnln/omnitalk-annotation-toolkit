@@ -148,3 +148,15 @@ body[data-view="browse"] [data-view-only="annotate"], body:not([data-view="brows
   .browse-choice { grid-template-columns:auto 18px minmax(0,1fr) auto }
   .browse-choice .correct-tag { display:none }
 }
+
+/* Information hover beside a toolbar button: shown on hover and on keyboard focus. */
+.browse-toolbar-group { position:relative }
+.info-tip { display:inline-flex }
+.info-tip-button { width:20px; height:20px; border:1px solid #cfd8d6; border-radius:50%; background:white; color:#6d7b84; font:600 11px/1 var(--serif, Georgia, serif); font-style:italic; padding:0; display:grid; place-items:center }
+.info-tip-button:hover, .info-tip-button:focus-visible { border-color:var(--green); color:var(--green) }
+.info-tip-panel { display:none; position:absolute; top:100%; margin-top:4px; left:0; z-index:30; width:min(420px, calc(100vw - 70px)); flex-direction:column; gap:6px; padding:14px 16px; background:white; border:1px solid var(--line); border-radius:9px; box-shadow:0 10px 40px #182d3424; font-size:12px; line-height:1.6; color:#56616d; text-align:left; white-space:normal }
+.info-tip:hover .info-tip-panel, .info-tip:focus-within .info-tip-panel { display:flex }
+.info-tip-panel strong { color:#35424b; font-weight:600 }
+.info-tip-panel strong:not(:first-child) { margin-top:6px }
+.info-tip-panel code { font:11px var(--mono); background:#f3f6f5; border-radius:4px; padding:1px 4px; color:#44535b }
+.info-tip-panel .info-tip-code { display:block; padding:7px 9px; overflow-wrap:anywhere }
