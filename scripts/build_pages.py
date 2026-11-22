@@ -8,6 +8,18 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "src" / "annotation_toolkit" / "static"
 # Only public application assets are deployed, never downloads or workspace data.
 PUBLIC_FILES = ("index.html", "app.js", "core.js", "styles.css", "downloads.js", "downloads.css", "jsonl.js", "browse.js", "browse.css")
+BROWSE_SHORTCUTS = ("browser", "browse")
+SHORTCUT_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OmniTalk · Browse</title>
+<meta http-equiv="refresh" content="0; url=../?view=browse">
+<script>location.replace("../?view=browse" + location.hash);</script>
+</head>
+<body><p><a href="../?view=browse">Open the Browse view</a></p></body>
+</html>
+"""
 
 
 def build_site(destination: Path) -> None:
@@ -20,6 +32,10 @@ def build_site(destination: Path) -> None:
                 raise ValueError("Expected exactly one local mode marker in index.html")
             content = content.replace(marker, '<body data-mode="static">')
         (destination / name).write_text(content, encoding="utf-8")
+    # Short addresses for the Browse view: <site>/browser/ and <site>/browse/ send the reader to ../?view=browse.
+    for name in BROWSE_SHORTCUTS:
+        (destination / name).mkdir(exist_ok=True)
+        (destination / name / "index.html").write_text(SHORTCUT_PAGE, encoding="utf-8")
     (destination / ".nojekyll").touch()
 
 
