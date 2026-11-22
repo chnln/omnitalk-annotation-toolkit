@@ -160,3 +160,18 @@ body[data-view="browse"] [data-view-only="annotate"], body:not([data-view="brows
 .info-tip-panel strong:not(:first-child) { margin-top:6px }
 .info-tip-panel code { font:11px var(--mono); background:#f3f6f5; border-radius:4px; padding:1px 4px; color:#44535b }
 .info-tip-panel .info-tip-code { display:block; padding:7px 9px; overflow-wrap:anywhere }
+
+/* YouTube source: clip range and position under the player. */
+.clip-bar { margin-top:9px; display:grid; gap:5px }
+.clip-bar-head { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px }
+.clip-bar .clip-bar-play { padding:5px 11px; font-size:11px }
+.clip-bar-readout { font-size:11px; color:#56616d }
+.clip-bar.outside .clip-bar-readout { color:#a17b42 }
+.clip-track { position:relative; height:10px; border-radius:5px; background:#e9eeed; cursor:pointer; overflow:hidden }
+.clip-track-zoom { background:#d5e8e0 }
+.clip-track-fill { position:absolute; left:0; top:0; bottom:0; width:0; background:var(--green); border-radius:5px 0 0 5px }
+.clip-track-whole { height:6px; border-radius:3px; margin-top:4px }
+.clip-track-range { position:absolute; top:0; bottom:0; background:#90beae }
+.clip-track-playhead { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px; background:#35424b }
+.clip-track-labels { display:flex; justify-content:space-between; gap:8px; font-size:9px; color:#98a3a9 }
+.clip-track-caption { font-family:var(--sans); color:#8a949c }

@@ -129,7 +129,17 @@ test("Drive mappings: object form, Drive listing form with folders, duplicates a
   const links = j.youtubeLinks({ url: "https://www.youtube.com/watch?v=M7lc1UVf-VE", start_time: "00:01:05.250", end_time: "00:01:31.550" });
   assert.equal(links.watch, "https://www.youtube.com/watch?v=M7lc1UVf-VE&t=65s");
   assert.equal(links.embed, "https://www.youtube.com/embed/M7lc1UVf-VE?start=65&playsinline=1&rel=0&hl=en&end=92");
+  assert.equal(links.player, "https://www.youtube.com/embed/M7lc1UVf-VE?start=65&playsinline=1&rel=0&hl=en&enablejsapi=1");
+  assert.equal(links.startMs, 65250);
+  assert.equal(links.endMs, 91550);
+  assert.equal(j.youtubeLinks({ url: "https://www.youtube.com/watch?v=M7lc1UVf-VE", start_time: "00:01:05.250", end_time: "00:01:05.250" }).endMs, null);
   assert.equal(j.youtubeLinks({ url: "nope" }), null);
+  // Pause only when playback runs across the end, not when the viewer seeks past it or plays on after it.
+  assert.equal(j.crossedClipEnd(91.5, 91.56, 91.55), true);
+  assert.equal(j.crossedClipEnd(91.4, 91.5, 91.55), false);
+  assert.equal(j.crossedClipEnd(91.55, 91.6, 91.55), false);
+  assert.equal(j.crossedClipEnd(70, 120, 91.55), false);
+  assert.equal(j.crossedClipEnd(null, 92, 91.55), false);
 });
 
 test("JSONL_FORMAT.md matches the spec the validator and Format tab use", () => {
