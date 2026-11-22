@@ -5,6 +5,8 @@ body[data-view="browse"] [data-view-only="annotate"], body:not([data-view="brows
 .view-tab:hover { color:var(--green-dark) }
 .view-tab[aria-selected=true] { background:white; color:var(--green-dark); box-shadow:0 1px 3px #23302a14 }
 
+/* body is a fixed-height flex column that does not scroll (styles.css), so the Browse view scrolls itself. */
+.browse-view { flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain }
 .browse-main { padding-bottom:18px }
 .browse-view.is-dragging .browse-main { outline:2px dashed #9cc3b4; outline-offset:-10px; border-radius:14px }
 .browse-toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 18px; background:white; border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:16px }
@@ -39,7 +41,7 @@ body[data-view="browse"] [data-view-only="annotate"], body:not([data-view="brows
 
 .browse-grid { display:grid; grid-template-columns:minmax(260px, 340px) minmax(0, 1fr); gap:18px; align-items:start }
 .browse-list-card, .browse-detail, .format-card { background:white; border:1px solid var(--line); border-radius:10px; min-width:0 }
-.browse-list-card { position:sticky; top:12px; display:flex; flex-direction:column; max-height:calc(100vh - 24px) }
+.browse-list-card { position:sticky; top:12px; display:flex; flex-direction:column; max-height:calc(100dvh - 112px) }
 .browse-filters { display:grid; grid-template-columns:1fr 1fr; gap:7px; padding:12px 12px 8px }
 .browse-filters .library-search { grid-column:1/-1 }
 .browse-filters select { min-width:0; border:1px solid #e7ebed; border-radius:6px; padding:6px 7px; font-size:11px; background:white; color:#56616d }
@@ -76,11 +78,13 @@ body[data-view="browse"] [data-view-only="annotate"], body:not([data-view="brows
 .problem.warning { color:#93701f } .problem.warning:before { background:#d7a63a }
 .field-problems { margin-top:5px }
 
-.browse-video { margin-bottom:18px }
+.browse-top { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:20px; align-items:start; margin-bottom:18px }
+.browse-top .browse-qa:empty { display:none }
+.browse-video { min-width:0 }
 .source-switch { display:inline-flex; gap:2px; padding:3px; border:1px solid var(--line); border-radius:8px; background:#f4f6f6; margin-bottom:10px }
 .source-option { border:0; background:none; color:#6f7b84; font-size:11px; font-weight:550; padding:5px 12px; border-radius:6px }
 .source-option[aria-checked=true] { background:white; color:var(--green-dark); box-shadow:0 1px 3px #23302a14 }
-.browse-stage { position:relative; background:#182830; aspect-ratio:16/9; max-height:520px; width:100%; border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center }
+.browse-stage { position:relative; background:#182830; aspect-ratio:16/9; max-height:min(520px, 55vh); width:100%; border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center }
 .browse-stage iframe, .browse-stage video { width:100%; height:100%; border:0; display:block; background:#000 }
 .stage-message { color:#d3dcdf; font-size:12px; text-align:center; display:grid; gap:10px; justify-items:center; padding:20px }
 .browse-video-links { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin-top:9px; font-size:12px }
@@ -134,7 +138,7 @@ body[data-view="browse"] [data-view-only="annotate"], body:not([data-view="brows
 .format-table td:first-child code { white-space:nowrap }
 .format-example { white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; line-height:1.6; background:#f6f8f7; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:0 }
 
-@media(max-width:1060px) { .browse-grid { grid-template-columns:minmax(0, 1fr) } .browse-list-card { position:static; max-height:420px } }
+@media(max-width:1060px) { .browse-top { grid-template-columns:minmax(0, 1fr) } .browse-grid { grid-template-columns:minmax(0, 1fr) } .browse-list-card { position:static; max-height:420px } }
 @media(max-width:720px) {
   .view-switch { order:3; width:100%; margin-right:0 }
   .view-tab { flex:1 }

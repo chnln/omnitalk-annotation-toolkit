@@ -576,11 +576,19 @@ function renderDetail() {
   lineProblems.id = "browse-line-problems";
   const video = el("div", "browse-video");
   video.id = "browse-video";
+  // The video takes the left half; the question and its choices sit beside it; the line's other fields go below.
+  const top = el("div", "browse-top");
+  const qa = el("div", "browse-fields browse-qa");
   const body = el("div", "browse-fields");
   if (data === undefined || rawEditing) body.append(rawEditor(line));
-  else body.append(...fieldEditors(data));
+  else {
+    const fields = fieldEditors(data);
+    qa.append(...fields.qa);
+    body.append(...fields.info);
+  }
+  top.append(video, qa);
   const focusKey = document.activeElement?.dataset?.key;
-  detail.replaceChildren(header, lineProblems, video, body);
+  detail.replaceChildren(header, lineProblems, top, body);
   videoKey = null;
   refreshDetail();
   if (focusKey) detail.querySelector(`[data-key="${focusKey}"]`)?.focus();
@@ -640,7 +648,10 @@ function fieldEditors(data) {
     chips.append(chip);
   }
   scenario.append(scenarioLabel, chips, errorsFor("scenario"));
-  return [ids, textField("YouTube URL", "url", { mono: true, hint: "url" }), times, scenario, textField("Question", "question", { multiline: true }), choicesEditor(data), errorsFor("correct_answer"), extraKeys(data)];
+  return {
+    qa: [textField("Question", "question", { multiline: true }), choicesEditor(data), errorsFor("correct_answer")],
+    info: [ids, textField("YouTube URL", "url", { mono: true, hint: "url" }), times, scenario, extraKeys(data)],
+  };
 }
 
 function choicesEditor(data) {
