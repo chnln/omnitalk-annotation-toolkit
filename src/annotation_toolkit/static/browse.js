@@ -21,6 +21,7 @@ const selection = new Map(); // dataset ID -> selected line index
 const filters = { query: "", scenario: "", status: "" };
 let validation = { problems: [], summary: { lines: 0, errorLines: 0, warningLines: 0, byRule: {} } };
 let storageBlocked = false;
+let datasetsUnsaved = ""; // the warning to keep showing while the QA files on this page are newer than the stored copy
 const stored = new Map();
 let rawEditing = false;
 let formTarget = null; // { id, index } of the line the detail form was built for
@@ -78,6 +79,11 @@ function warn(message) {
   $("browse-storage-warning").hidden = !message;
   $("browse-storage-warning-text").textContent = message || "";
 }
+/** A write that was not refused by its caller failed: say so, and remember it when it was the QA files. */
+function unsaved(key, message) {
+  if (key === BROWSE_KEYS.datasets) datasetsUnsaved = message;
+  warn(message);
+}
 function readKey(key) {
   const raw = localStorage.getItem(key);
   stored.set(key, raw);
@@ -96,15 +102,16 @@ function writeKey(key, value, { soft = false } = {}) {
       return false;
     }
     if (key !== BROWSE_KEYS.prefs && browseSize(key, raw) > STORAGE_BUDGET) {
-      if (!soft) warn("QA files use all the browser space set aside for Browse. This change is kept on this page only: export the file, then remove a QA file you no longer need.");
+      if (!soft) unsaved(key, "QA files use all the browser space set aside for Browse. This change is kept on this page only: export the file, then remove a QA file you no longer need.");
       return false;
     }
     localStorage.setItem(key, raw);
     stored.set(key, raw);
-    if (!storageBlocked) warn("");
+    if (key === BROWSE_KEYS.datasets) datasetsUnsaved = "";
+    if (!storageBlocked) warn(datasetsUnsaved); // a saved preference must not hide the warning about unsaved QA files
     return true;
   } catch {
-    if (!soft) warn("Browser storage is unavailable or full. Browse changes are kept on this page only; export your QA files.");
+    if (!soft) unsaved(key, "Browser storage is unavailable or full. Browse changes are kept on this page only; export your QA files.");
     return false;
   }
 }
@@ -306,7 +313,7 @@ function commit(change, { rebuild = false } = {}) {
   const dataset = current();
   const index = currentIndex();
   if (!dataset || index === null) return;
-  if (formTarget?.id !== dataset.id || formTarget.index !== index) { renderDetail(); return; } // never edit a line the form does not show
+  if (formTarget?.id !== dataset.id || formTarget.index !== index) { renderDetail(); renderVideo(); return; } // never edit a line the form does not show
   const line = dataset.lines[index];
   const before = line.raw;
   try { J.editLine(line, change, dataset.style); } catch (problem) { toast(problem.message, true); return; }
@@ -563,7 +570,7 @@ function renderDetail() {
   revert.id = "browse-revert";
   revert.title = "Go back to the text this line had when the file was imported";
   actions.append(revert);
-  if (data !== undefined) actions.append(button(rawEditing ? "Edit fields" : "Edit line text", () => { rawEditing = !rawEditing; renderDetail(); }));
+  if (data !== undefined) actions.append(button(rawEditing ? "Edit fields" : "Edit line text", () => { rawEditing = !rawEditing; renderDetail(); renderVideo(); }));
   header.append(titles, badges, actions);
   const lineProblems = el("div", "line-problems");
   lineProblems.id = "browse-line-problems";
@@ -591,7 +598,7 @@ function rawEditor(line) {
   input.spellcheck = false;
   const row = el("div", "browse-raw-actions");
   row.append(button("Save line text", () => saveRaw(input.value), "button primary"));
-  if (line.data !== undefined) row.append(button("Cancel", () => { rawEditing = false; renderDetail(); }));
+  if (line.data !== undefined) row.append(button("Cancel", () => { rawEditing = false; renderDetail(); renderVideo(); }));
   wrapper.append(label, input, row);
   return wrapper;
 }
@@ -989,7 +996,7 @@ window.addEventListener("storage", (event) => {
   }
 });
 window.addEventListener("beforeunload", (event) => {
-  if (storageBlocked && datasets.some((item) => item.lines.some(J.isEdited))) { event.preventDefault(); event.returnValue = ""; }
+  if ((storageBlocked || datasetsUnsaved) && datasets.some((item) => item.lines.some(J.isEdited))) { event.preventDefault(); event.returnValue = ""; }
 });
 
 restore();

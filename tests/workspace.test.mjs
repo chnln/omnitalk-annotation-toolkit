@@ -145,7 +145,7 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
   };`, context, { filename: "app.js" });
   const api = context.workspaceAPI;
   // Its own function scope stands in for the separate module scope it has in the page.
-  if (browse) vm.runInContext(`(() => {\n${browseSource}\nglobalThis.browseAPI = { state: () => ({ datasets, activeId, prefs, drive, storageBlocked }) };\n})();`, context, { filename: "browse.js" });
+  if (browse) vm.runInContext(`(() => {\n${browseSource}\nglobalThis.browseAPI = { state: () => ({ datasets, activeId, prefs, drive, storageBlocked, datasetsUnsaved }) };\n})();`, context, { filename: "browse.js" });
   const node = document.getElementById;
   const libraryRow = (id) => node("video-list").children.find((row) => row.dataset.videoId === api.state().project.videos.find((video) => video.video_id === id)?.id);
   const libraryItem = (id) => libraryRow(id)?.querySelector(".video-item");
@@ -1412,4 +1412,44 @@ test("Browse edits stay on the shown line when a filter stops matching it, and f
   await h.node("browse-search").fire("input");
   assert.equal(h.browseAPI.state().datasets[0].lines[2].data.video_clip_id, "Demo-003");
   assert.match(h.node("browse-detail").textContent, /LINE 4 OF/, "a search that excludes the selected line moves to the first match");
+});
+
+test("Browse keeps warning about QA edits that could not be saved, even after a preference is saved", async () => {
+  const h = workspace([], { browse: true });
+  await h.node("view-browse").fire("click");
+  await browseImport(h, fakeFile("example.jsonl", qaExample));
+  const set = h.storage.set.bind(h.storage);
+  h.storage.set = (key, value) => { if (key === BROWSE_DATASETS) throw new Error("quota"); return set(key, value); };
+  const choice = h.node("browse-detail").querySelector('[data-key="choice:A"]');
+  choice.value = "Edited while storage is full";
+  await choice.fire("change");
+  assert.ok(h.browseAPI.state().datasetsUnsaved, "the failed save is remembered");
+  assert.equal(h.browseAPI.state().storageBlocked, false, "this is not the cross-tab lock");
+  assert.equal(h.node("browse-storage-warning").hidden, false);
+  h.node("browse-hide-answers").checked = true;
+  await h.node("browse-hide-answers").fire("change");
+  assert.ok(h.storage.get("omnitalk.browse.prefs.v1").includes('"hide_answers":true'), "the preference itself was saved");
+  assert.equal(h.node("browse-storage-warning").hidden, false, "saving a preference does not hide the warning");
+  assert.ok(h.browseAPI.state().datasetsUnsaved);
+  h.storage.set = set;
+  const again = h.node("browse-detail").querySelector('[data-key="choice:B"]');
+  again.value = "Edited after space came back";
+  await again.fire("change");
+  assert.equal(h.browseAPI.state().datasetsUnsaved, "", "a later successful save clears it");
+  assert.equal(h.node("browse-storage-warning").hidden, true);
+  assert.match(JSON.parse(h.storage.get(BROWSE_DATASETS)).datasets[0].lines[0].c, /Edited while storage is full.*Edited after space came back/);
+});
+
+test("Browse shows the video again after switching between the field form and the line text", async () => {
+  const h = workspace([], { browse: true });
+  await h.node("view-browse").fire("click");
+  await browseImport(h, fakeFile("example.jsonl", qaExample));
+  assert.ok(h.node("browse-video").querySelector(".browse-stage"), "the player is there to begin with");
+  const toggle = () => h.node("browse-detail").querySelector(".browse-detail-actions").children.find((node) => /Edit (line text|fields)/.test(node.textContent));
+  await toggle().fire("click");
+  assert.equal(toggle().textContent, "Edit fields");
+  assert.ok(h.node("browse-video").querySelector(".browse-stage"), "the player is rebuilt in line-text mode");
+  await toggle().fire("click");
+  assert.equal(toggle().textContent, "Edit line text");
+  assert.ok(h.node("browse-video").querySelector(".browse-stage"), "and again back in the field form");
 });
