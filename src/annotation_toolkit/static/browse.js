@@ -23,6 +23,7 @@ let validation = { problems: [], summary: { lines: 0, errorLines: 0, warningLine
 let storageBlocked = false;
 const stored = new Map();
 let rawEditing = false;
+let formTarget = null; // { id, index } of the line the detail form was built for
 let videoKey = null;
 let toastTimer;
 
@@ -89,7 +90,7 @@ function writeKey(key, value, { soft = false } = {}) {
   if (storageBlocked) return false;
   const raw = JSON.stringify(value);
   try {
-    if (localStorage.getItem(key) !== (stored.get(key) ?? null)) {
+    if (key !== BROWSE_KEYS.prefs && localStorage.getItem(key) !== (stored.get(key) ?? null)) {
       storageBlocked = true;
       warn("Another tab changed the Browse data. Saving is paused here so neither overwrites the other. Export your QA files, then reload.");
       return false;
@@ -305,6 +306,7 @@ function commit(change, { rebuild = false } = {}) {
   const dataset = current();
   const index = currentIndex();
   if (!dataset || index === null) return;
+  if (formTarget?.id !== dataset.id || formTarget.index !== index) { renderDetail(); return; } // never edit a line the form does not show
   const line = dataset.lines[index];
   const before = line.raw;
   try { J.editLine(line, change, dataset.style); } catch (problem) { toast(problem.message, true); return; }
@@ -429,7 +431,7 @@ function renderSummary() {
     el("span", edited ? "summary-edited" : "", plural(edited, "edited line")),
   ];
   const rules = J.RULES.filter((rule) => summary.byRule[rule.id]).map((rule) => {
-    const chip = button(`${rule.id} × ${summary.byRule[rule.id]}`, () => { filters.status = rule.level === "error" ? "errors" : "warnings"; renderFilters(); renderList(); }, `rule-chip ${rule.level}`);
+    const chip = button(`${rule.id} × ${summary.byRule[rule.id]}`, () => { filters.status = rule.level === "error" ? "errors" : "warnings"; renderFilters(); applyFilters(); }, `rule-chip ${rule.level}`);
     chip.title = `${rule.level === "error" ? "Error" : "Warning"}: ${rule.text}`;
     return chip;
   });
@@ -448,17 +450,24 @@ function lineBadges(line, problems) {
   return badges;
 }
 
-function renderList() {
+/**
+ * Render the question list. The selection only moves when `reselect` is set (the user changed a filter) or nothing
+ * is selected; otherwise a selected line that no longer matches stays listed, so an edit never moves the selection
+ * away from the form being edited. Returns true when the selection changed.
+ */
+function renderList({ reselect = false } = {}) {
   const dataset = current();
-  if (!dataset) { $("browse-list").replaceChildren(); return; }
-  const shown = J.filterLines(dataset.lines, validation.problems, filters);
-  let index = currentIndex();
-  if (index === null || (!shown.includes(index) && shown.length)) {
-    index = shown[0] ?? null;
+  if (!dataset) { $("browse-list").replaceChildren(); return false; }
+  const matching = J.filterLines(dataset.lines, validation.problems, filters);
+  const before = currentIndex();
+  let index = before;
+  if (index === null || (reselect && !matching.includes(index))) {
+    index = matching[0] ?? null;
     if (index === null) selection.delete(dataset.id); else selection.set(dataset.id, index);
   }
+  const shown = index !== null && !matching.includes(index) ? [...matching, index].sort((a, b) => a - b) : matching;
   const total = dataset.lines.length;
-  $("browse-count").textContent = shown.length === total ? plural(total, "question") : `${shown.length} of ${plural(total, "question")}`;
+  $("browse-count").textContent = matching.length === total ? plural(total, "question") : `${matching.length} of ${plural(total, "question")}`;
   $("browse-list").replaceChildren(...shown.map((lineIndex) => {
     const line = dataset.lines[lineIndex];
     const data = line.data ?? {};
@@ -475,7 +484,13 @@ function renderList() {
     item.addEventListener("click", () => select(lineIndex));
     return item;
   }));
-  if (!shown.length) $("browse-list").append(el("p", "browse-list-empty", "No matching questions. Try another search or filter."));
+  if (!matching.length) $("browse-list").append(el("p", "browse-list-empty", "No matching questions. Try another search or filter."));
+  return index !== before;
+}
+
+/** After a filter change: re-render the list and, only if the selection moved, the detail and player. */
+function applyFilters() {
+  if (renderList({ reselect: true })) { rawEditing = false; renderDetail(); renderVideo(); }
 }
 
 function select(index) {
@@ -537,6 +552,7 @@ function renderDetail() {
   const detail = $("browse-detail");
   if (!dataset || !line) { detail.replaceChildren(el("p", "browse-list-empty", dataset ? "Select a question in the list." : "")); return; }
   const data = line.data;
+  formTarget = { id: dataset.id, index: currentIndex() };
   const header = el("div", "browse-detail-heading");
   const titles = el("div");
   titles.append(el("span", "section-kicker", `LINE ${line.number} OF ${dataset.name.toUpperCase()}`), el("h2", "", data && typeof data.question_id === "string" && data.question_id ? data.question_id : `Line ${line.number}`));
@@ -936,8 +952,8 @@ $("browse-local-file").addEventListener("change", () => {
   renderVideo();
 });
 $("browse-dismiss-report").addEventListener("click", () => showReport([]));
-$("browse-search").addEventListener("input", () => { filters.query = $("browse-search").value; renderList(); renderDetail(); renderVideo(); });
-for (const key of ["scenario", "status"]) $(`browse-${key}`).addEventListener("change", () => { filters[key] = $(`browse-${key}`).value; renderList(); renderDetail(); renderVideo(); });
+$("browse-search").addEventListener("input", () => { filters.query = $("browse-search").value; applyFilters(); });
+for (const key of ["scenario", "status"]) $(`browse-${key}`).addEventListener("change", () => { filters[key] = $(`browse-${key}`).value; applyFilters(); });
 $("browse-hide-answers").addEventListener("change", () => {
   prefs.hide_answers = $("browse-hide-answers").checked;
   $("browse-view").classList.toggle("answers-hidden", prefs.hide_answers);

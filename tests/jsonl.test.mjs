@@ -115,7 +115,7 @@ test("Drive mappings: object form, Drive listing form with folders, duplicates a
   const object = j.parseDriveMapping(JSON.parse(read("../examples/drive-mapping-example.json")));
   assert.deepEqual(Object.keys(object.map), ["Demo-001", "Demo-002"]);
   const listing = j.parseDriveMapping([
-    { title: "catalog", id: "11guVECmb-folder-0000", mimeType: "application/vnd.google-apps.folder" },
+    { title: "catalog", id: "1FolderIdForTestsOnly000", mimeType: "application/vnd.google-apps.folder" },
     { title: "Demo-001.mp4", id: "1AbCdEfGhIjKlMnOpQrStUvWxYz012345", mimeType: "video/mp4" },
     { title: "Demo-001.mp4", id: "1ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ", mimeType: "video/mp4" },
     { title: "notes.txt", id: "1CcDeFgHiJkLmNoPqRsTuVwXyZ0123456" },

@@ -98,7 +98,7 @@ Each question can play from three sources; the choice is remembered per question
 | **YouTube** | Embeds the original video from `url` with `start` and `end`. | YouTube's embed takes whole seconds, so the range is rounded outward, and after seeking the end is no longer enforced. The owner must allow embedding. |
 | **Local file** | Click **Local clips** (or drop video files) and choose files named `<video_clip_id>.mp4`; a single file can be assigned to the selected question. | Plays from this computer; files are not uploaded or stored and must be chosen again after a reload. |
 
-What was tested for Drive (November 2026): on the local app, the embed of an "anyone with the link" clip from the team folder rendered Drive's player (poster and play button) inside the page in a Chromium-based browser; playback inside the frame and files restricted to specific accounts were not tested. Neither the local app nor the GitHub Pages demo sends a Content-Security-Policy or other header that would block the Drive or YouTube frames.
+What was tested for Drive (November 2026): on the local app, the embed of a clip shared with anyone who has the link rendered Drive's player (poster and play button) inside the page in a Chromium-based test browser whose Google sign-in state was not checked. Playback inside the frame, files restricted to specific accounts, and browsers that block third-party cookies were not tested. Neither the local app nor the GitHub Pages demo sends a Content-Security-Policy or other header that would block the Drive or YouTube frames.
 
 ## Download videos locally
 

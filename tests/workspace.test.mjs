@@ -1382,3 +1382,34 @@ test("Browse restores its files, edits and view from its own keys after a reload
   // Annotate opens as usual with its own (empty) project.
   assert.equal(reloaded.api.state().project.videos.length, 0);
 });
+
+test("Browse edits stay on the shown line when a filter stops matching it, and filters do not reload the player", async () => {
+  const h = workspace([], { browse: true });
+  await h.node("view-browse").fire("click");
+  await browseImport(h, fakeFile("bad.jsonl", qaBad));
+  h.node("browse-status").value = "errors";
+  await h.node("browse-status").fire("change");
+  await h.node("browse-list").querySelector('[data-index="0"]').fire("click");
+  // Line 1 only has the duplicate question_id error; fixing it makes the line stop matching "With errors".
+  const id = h.node("browse-detail").querySelector('[data-key="question_id"]');
+  id.value = "Demo-001_Q9";
+  await id.fire("change");
+  const question = h.node("browse-detail").querySelector('[data-key="question"]');
+  question.value = "Edited after the fix";
+  await question.fire("change");
+  const lines = JSON.parse(h.storage.get(BROWSE_DATASETS)).datasets[0].lines;
+  assert.match(lines[0].c, /"question_id": "Demo-001_Q9".*"question": "Edited after the fix"/);
+  assert.equal(lines[2].c, undefined, "the next matching line is untouched");
+  assert.ok(h.node("browse-list").querySelector('[data-index="0"]'), "the edited line stays listed while selected");
+  h.node("browse-status").value = "";
+  await h.node("browse-status").fire("change");
+  const frame = h.node("browse-video").querySelector(".browse-stage").children[0];
+  h.node("browse-search").value = "Demo";
+  await h.node("browse-search").fire("input");
+  // Compare identity with ok(): a failing equal() on these DOM doubles would try to print their whole cyclic tree.
+  assert.ok(h.node("browse-video").querySelector(".browse-stage").children[0] === frame, "typing a search that still matches keeps the player");
+  h.node("browse-search").value = "Demo-003";
+  await h.node("browse-search").fire("input");
+  assert.equal(h.browseAPI.state().datasets[0].lines[2].data.video_clip_id, "Demo-003");
+  assert.match(h.node("browse-detail").textContent, /LINE 4 OF/, "a search that excludes the selected line moves to the first match");
+});
