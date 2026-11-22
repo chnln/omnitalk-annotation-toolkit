@@ -128,6 +128,7 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
     setTimeout: (handler) => { timers.set(++timerId, handler); return timerId; },
     clearTimeout: (id) => timers.delete(id),
     setInterval() {},
+    clearInterval() {},
     fetch: async (url, options) => {
       assert.equal(url, "/api/exports");
       exports.push(JSON.parse(options.body));

@@ -433,5 +433,18 @@ export function youtubeLinks(data) {
   const watch = `https://www.youtube.com/watch?v=${parsed.video_id}${startSeconds ? `&t=${startSeconds}s` : ""}`;
   const params = new URLSearchParams({ start: String(startSeconds), playsinline: "1", rel: "0", hl: "en" });
   if (end !== null && end > (start ?? 0)) params.set("end", String(Math.ceil(end / 1000)));
-  return { videoId: parsed.video_id, watch, embed: `https://www.youtube.com/embed/${parsed.video_id}?${params}` };
+  const hasEnd = end !== null && end > (start ?? 0);
+  // `player` is the embed for the scripted player: no end bound (the page pauses at endMs itself, to the millisecond).
+  const control = new URLSearchParams({ start: String(startSeconds), playsinline: "1", rel: "0", hl: "en", enablejsapi: "1" });
+  return { videoId: parsed.video_id, watch, embed: `https://www.youtube.com/embed/${parsed.video_id}?${params}`,
+    player: `https://www.youtube.com/embed/${parsed.video_id}?${control}`, startMs: start ?? 0, endMs: hasEnd ? end : null };
+}
+
+/**
+ * True when playback has just run across the clip end: the previous reading was before it and this one is at or after it.
+ * A large jump is a seek by the viewer, not playback, and does not count. Times are in seconds.
+ */
+export function crossedClipEnd(previous, now, end, maxStep = 2.5) {
+  if (![previous, now, end].every((value) => typeof value === "number" && Number.isFinite(value))) return false;
+  return previous < end && now >= end && now - previous <= maxStep;
 }
