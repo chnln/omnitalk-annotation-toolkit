@@ -742,9 +742,9 @@ function refreshDetail() {
 /* ---------- Video ---------- */
 
 const SOURCE_HELP = {
-  drive: "Plays the uploaded clip from Google Drive, so 0:00 is start_time. Drive only plays it in a browser signed in to a Google account that can open the file (or when the file is shared with anyone who has the link). Blocking third-party cookies (Safari, Firefox strict mode, Chrome with third-party cookies off) can make Drive ask you to sign in even when you are. This page cannot start or seek the Drive player: use its own controls. If it shows a sign-in or access message, use Open in Drive or switch to YouTube.",
-  youtube: "Plays the original video from start_time to end_time in YouTube's embedded player. YouTube's start and end take whole seconds, so the range is rounded outward; after you seek, the end is no longer enforced. The video's owner must allow embedding.",
-  local: "Plays a clip file from this computer, named <video_clip_id>.mp4, so 0:00 is start_time. Files are not uploaded or saved: choose them again after reloading the page.",
+  drive: "The uploaded clip; 0:00 is start_time. If Drive asks you to sign in or says you need access, sign in to a Google account that can open the file, or use Open in Drive.",
+  youtube: "The original video, starting at start_time. After you seek it can play past end_time, so watch the clock. If it says the video is unavailable, open the YouTube link instead.",
+  local: "A clip file from this computer; 0:00 is start_time. Choose the files again after reloading the page.",
 };
 
 function availableSources(line) {
