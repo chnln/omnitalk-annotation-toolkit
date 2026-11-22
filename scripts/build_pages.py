@@ -7,7 +7,7 @@ import argparse
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "src" / "annotation_toolkit" / "static"
 # Only public application assets are deployed, never downloads or workspace data.
-PUBLIC_FILES = ("index.html", "app.js", "core.js", "styles.css", "downloads.js", "downloads.css")
+PUBLIC_FILES = ("index.html", "app.js", "core.js", "styles.css", "downloads.js", "downloads.css", "jsonl.js", "browse.js", "browse.css")
 
 
 def build_site(destination: Path) -> None:

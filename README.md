@@ -1,6 +1,6 @@
 # OmniTalk Annotation Toolkit
 
-A frontend toolkit for video clip annotation: load YouTube videos, mark time ranges, design multiple-choice questions with modality labels, and export portable JSON. Each participant can run it locally without renting a server or creating an account.
+A frontend toolkit for video clip annotation: load YouTube videos, mark time ranges, design multiple-choice questions with modality labels, and export portable JSON. A separate **Browse** view opens OmniTalk QA submission files (JSONL), checks them against the [JSONL format](JSONL_FORMAT.md), plays each question's clip, and exports an edited copy. Each participant can run it locally without renting a server or creating an account.
 
 **[Try the browser demo](https://chnln.github.io/omnitalk-annotation-toolkit/)** · **[Source code](https://github.com/chnln/omnitalk-annotation-toolkit)**
 
@@ -77,6 +77,29 @@ Deleting a library video requires confirmation and removes its clips and draft f
 4. Questions autosave immediately as **Draft** and are included in JSON exports, even when incomplete. **Mark Ready** checks completeness; editing a Ready question returns it to Draft. Export regularly for a file backup.
 5. Record the clip's subtitle status separately. Visible subtitles do not automatically make Text a required modality. No masking or subtitle processing is performed by this field.
 
+## Browse QA files (JSONL)
+
+The switch at the top of the page shows **Annotate** (everything above) or **Browse**. Browse works on OmniTalk QA submission files: one multiple-choice question per line, with `video_clip_id`, `url`, `start_time`, `end_time`, `duration`, `question_id`, `scenario`, `question`, `choices` and `correct_answer`. The fields and checks are specified in **[JSONL_FORMAT.md](JSONL_FORMAT.md)** (format v1.0) and shown in Browse's **Format** tab; a small invented sample is in [`examples/omnitalk-qa-example.jsonl`](examples/omnitalk-qa-example.jsonl). This format is separate from the annotation project JSON below.
+
+1. Click **Import JSONL**, or drop `.jsonl` files onto the Browse view. Each file becomes its own dataset; the selector beside **Import JSONL** switches between them and the trash button removes the open one from browser storage. Lines that are not JSON objects are kept, listed with their line numbers after import, and can be fixed with **Edit line text**.
+2. The list on the left searches clip IDs, question IDs, question and choice text, and filters by scenario or by problems (errors, warnings only, no problems, edited). **Hide answers** hides the correct-answer marks.
+3. The panel on the right edits every field. Problems appear under the field and in a summary for the whole file; clicking a rule in the summary filters the list. When `duration` disagrees with the times, **Set to … (end − start)** recomputes it; **Re-letter A, B, C…** fixes choice keys. Text fields apply when you leave them (Tab or click elsewhere). **Undo last edit** steps back through this session's edits; **Revert line** restores the imported text of one line. Edited lines are marked.
+4. **Export JSONL** downloads the open dataset through the browser. Unedited lines are written exactly as imported, so exporting an unedited file reproduces it byte for byte (a missing final newline is added). Edited lines keep the original text of unchanged fields, the key order, unknown keys and the `", "` / `": "` separators; see [how Browse writes files](JSONL_FORMAT.md#how-browse-reads-and-writes-files).
+
+Browse never reads or writes the Annotate view's storage: its files, Drive mapping and preferences live under their own `omnitalk.browse.*` keys, and switching views keeps unsaved work in both. Annotation shortcuts (`I`, `O`, `Space`, `?`, `⌘/Ctrl+Enter`) are off while Browse is shown, and the Annotate player pauses when you switch away.
+
+### Playing clips in Browse
+
+Each question can play from three sources; the choice is remembered per question. By default Browse uses a local file if one is loaded for the clip, otherwise Drive if the mapping has the clip, otherwise YouTube. A plain link to the YouTube video at `start_time` is always shown.
+
+| Source | How | Limits |
+| --- | --- | --- |
+| **Drive** | Click **Drive mapping** and choose a JSON file mapping clip IDs to Drive file IDs: either `{ "Nan-001": "<file ID>", … }` or a Drive listing `[{ "title": "Nan-001.mp4", "id": "<file ID>" }, …]` (entries that are not `.mp4` files are skipped). Browse then embeds `https://drive.google.com/file/d/<file ID>/preview`. | Plays the cut clip, so 0:00 is `start_time`. Drive serves it only to a browser that is **signed in to a Google account with access to the file**, or when the file is shared with anyone who has the link. Blocking third-party cookies (Safari, Firefox strict mode, Chrome with third-party cookies off) can make the embed ask for sign-in even when you are signed in; use **Open in Drive** then. The page cannot start, seek or read the Drive player. |
+| **YouTube** | Embeds the original video from `url` with `start` and `end`. | YouTube's embed takes whole seconds, so the range is rounded outward, and after seeking the end is no longer enforced. The owner must allow embedding. |
+| **Local file** | Click **Local clips** (or drop video files) and choose files named `<video_clip_id>.mp4`; a single file can be assigned to the selected question. | Plays from this computer; files are not uploaded or stored and must be chosen again after a reload. |
+
+What was tested for Drive (November 2026): on the local app, the embed of a clip shared with anyone who has the link rendered Drive's player (poster and play button) inside the page in a Chromium-based test browser whose Google sign-in state was not checked. Playback inside the frame, files restricted to specific accounts, and browsers that block third-party cookies were not tested. Neither the local app nor the GitHub Pages demo sends a Content-Security-Policy or other header that would block the Drive or YouTube frames.
+
 ## Download videos locally
 
 Use **Download video** for a full video or a selected range, a clip row’s download button for one saved clip, or **Download all** for a batch. Each request requires a destination: **Choose folder**, enter an existing absolute folder path, or explicitly select **Use default folder**. A batch chooses one folder and resolution, then queues all clips in time order.
@@ -90,7 +113,7 @@ Download only content you have permission to use. The toolkit does not import lo
 
 ## Annotation JSON schema
 
-For generated datasets, use the **[standalone import specification](SCHEMA.md)** and the **[importable example with a complete question](examples/annotation-project-1.5.json)**. The specification includes exact field limits, enum values, source-time conversion, and a command that runs the app's actual import validator. Research catalogs and flat QA arrays require conversion before import.
+For generated datasets, use the **[standalone import specification](SCHEMA.md)** and the **[importable example with a complete question](examples/annotation-project-1.5.json)**. The specification includes exact field limits, enum values, source-time conversion, and a command that runs the app's actual import validator. Research catalogs and flat QA arrays require conversion before import; QA submission files in JSONL open in the Browse view instead (see [JSONL_FORMAT.md](JSONL_FORMAT.md)).
 
 The current format is **schema `1.5`**, shared by the local app and browser edition. It describes one project containing videos, each with its saved clip annotations. The schema version is separate from the app's release version, such as `v0.3.0`. Version 1.5 adds per-clip scenario categories (`scenarios`) and aligns the evidence cues with the team guideline's Modality Elements (new `voice_characteristics`; `action_event` split into `action` and `event`, `object_scene` into `object` and `scene`); 1.4 added per-question evidence with time spans (`annotations`) and the audio cue `vocalization`; 1.3 added an optional per-clip `ref_id`. Older releases cannot import newer schemas. See [schema versions](SCHEMA.md#schema-versions) for each version's changes and how older files migrate. The English interface accepts Unicode text in names, notes, and tags.
 
@@ -239,11 +262,11 @@ Both editions use the same format. A participant can annotate on Pages, export J
 
 ## Data and limitations
 
-Projects and drafts autosave to browser `localStorage`, separately for each browser, host, and port. Clearing browser data removes them. All loaded files share the browser's storage quota for this site (often about 5 MB); an import that does not fit is refused and leaves the workspace unchanged. Data saved by v0.2.0 is migrated automatically on first load. Autosave is not a JSON file backup: export regularly, and avoid editing the same project in multiple tabs. Annotations are not uploaded to a project server.
+Projects and drafts autosave to browser `localStorage`, separately for each browser, host, and port. Clearing browser data removes them. Browse's QA files use their own keys and at most about 1.5 million characters of that space, so the Annotate view keeps room; an import that does not fit is refused. All loaded files share the browser's storage quota for this site (often about 5 MB); an import that does not fit is refused and leaves the workspace unchanged. Data saved by v0.2.0 is migrated automatically on first load. Autosave is not a JSON file backup: export regularly, and avoid editing the same project in multiple tabs. Annotations are not uploaded to a project server.
 
 YouTube playback still connects to YouTube/Google and requires internet access and an embeddable video. The [official embedded player](https://developers.google.com/youtube/iframe_api_reference) avoids the website’s comments and recommendation sidebar, but YouTube controls its branding, ads, and end recommendations. These cannot all be hidden through [player parameters](https://developers.google.com/youtube/player_parameters).
 
-Audio-only extraction, subtitle import/alignment, local media playback, and collaborative synchronization are not implemented.
+Audio-only extraction, subtitle import/alignment, and collaborative synchronization are not implemented. Local media playback exists only in Browse, for clip files you choose.
 
 ## Development
 

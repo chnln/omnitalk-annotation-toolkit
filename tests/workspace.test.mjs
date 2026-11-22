@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import * as core from "../src/annotation_toolkit/static/core.js";
+import * as jsonl from "../src/annotation_toolkit/static/jsonl.js";
 
 const appSource = readFileSync(new URL("../src/annotation_toolkit/static/app.js", import.meta.url), "utf8")
   .replace(/^import\s+[\s\S]*?from\s+["'][^"']+["'];\s*/gm, "");
+// The Browse view's module, run in the same page as app.js when a test asks for it.
+const browseSource = readFileSync(new URL("../src/annotation_toolkit/static/browse.js", import.meta.url), "utf8")
+  .replace(/^import\s+[\s\S]*?from\s+["'][^"']+["'];\s*/gm, "").replace(/^export /gm, "");
 const html = readFileSync(new URL("../src/annotation_toolkit/static/index.html", import.meta.url), "utf8");
 const PROJECTS = "omnitalk.annotation.projects.v2";
 const storedProject = (h, index = 0) => JSON.parse(h.storage.get(PROJECTS)).projects[index];
@@ -63,14 +67,15 @@ class Node {
   set textContent(text) { this._text = String(text); this.replaceChildren(); }
 }
 
-function workspace(savedStorage = [], { mode = "local", failSidebarStorage = false, beforeSetItem = null } = {}) {
+function workspace(savedStorage = [], { mode = "local", failSidebarStorage = false, beforeSetItem = null, browse = false } = {}) {
   const document = {
     activeElement: null,
     downloads: [],
     createElement: (tag) => new Node(tag, document),
     createElementNS: (_, tag) => new Node(tag, document),
     createTextNode: (text) => { const node = new Node("text", document); node.textContent = text; return node; },
-    addEventListener() {},
+    listeners: {},
+    addEventListener(name, handler) { (this.listeners[name] ||= []).push(handler); },
     querySelector: () => null,
   };
   document.head = document.createElement("head");
@@ -99,6 +104,7 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
     listeners: {},
     addEventListener(name, handler) { (this.listeners[name] ||= []).push(handler); },
     fire(name, event) { for (const handler of this.listeners[name] || []) handler(event); },
+    dispatchEvent(event) { this.fire(event.type, event); return true; },
   };
   class BrowserURL extends URL {
     static createObjectURL(blob) {
@@ -109,7 +115,8 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
     static revokeObjectURL() {}
   }
   const context = vm.createContext({
-    ...core, document, window, URL: BrowserURL, URLSearchParams, Blob, console, AbortSignal,
+    ...core, document, window, URL: BrowserURL, URLSearchParams, Blob, console, AbortSignal, J: jsonl, crypto: globalThis.crypto,
+    CustomEvent: class { constructor(type, { detail } = {}) { this.type = type; this.detail = detail; } },
     Date: class extends Date { static now() { return now; } },
     location: { origin: "http://127.0.0.1:8765" },
     navigator: { clipboard: { writeText: async (text) => { clipboard.push(text); } } },
@@ -137,6 +144,8 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
     state: () => ({ project, activeId, editingId, drafts, player, playerReady, mediaDuration, playerGeneration, storageBlocked, memoryNeedsBackup }),
   };`, context, { filename: "app.js" });
   const api = context.workspaceAPI;
+  // Its own function scope stands in for the separate module scope it has in the page.
+  if (browse) vm.runInContext(`(() => {\n${browseSource}\nglobalThis.browseAPI = { state: () => ({ datasets, activeId, prefs, drive, storageBlocked, datasetsUnsaved }) };\n})();`, context, { filename: "browse.js" });
   const node = document.getElementById;
   const libraryRow = (id) => node("video-list").children.find((row) => row.dataset.videoId === api.state().project.videos.find((video) => video.video_id === id)?.id);
   const libraryItem = (id) => libraryRow(id)?.querySelector(".video-item");
@@ -162,6 +171,7 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
         ready() { this.events.onReady({ target: this }); }
         fail(code = 150) { this.events.onError({ target: this, data: code }); }
         seekTo(time) { this.time = time; }
+        pauseVideo() { this.paused = true; }
       },
     };
     window.onYouTubeIframeAPIReady?.();
@@ -169,7 +179,7 @@ function workspace(savedStorage = [], { mode = "local", failSidebarStorage = fal
   function fill(start, end, note, tags = "", ref = "") {
     for (const [id, value] of Object.entries({ "clip-ref": ref, "clip-start": start, "clip-end": end, "clip-note": note, "clip-tags": tags })) node(id).value = value;
   }
-  return { api, node, storage, instances, refreshes, downloadOpens, exports, clipboard, blobs, libraryItem, deleteButton, confirm, flush, resolveAPI, fill, window, document, advanceTime: (milliseconds) => { now += milliseconds; } };
+  return { api, browseAPI: context.browseAPI, node, storage, instances, refreshes, downloadOpens, exports, clipboard, blobs, libraryItem, deleteButton, confirm, flush, resolveAPI, fill, window, document, advanceTime: (milliseconds) => { now += milliseconds; } };
 }
 
 test("library clicks preserve distinct saved clips and unfinished per-video drafts before YouTube loads", async () => {
@@ -1252,4 +1262,194 @@ test("focus returns to the equivalent evidence control after a rebuild (issue #1
   const removeLine = labelled("Remove evidence 2");
   removeLine.focus(); await removeLine.click();
   focused(button("+ Add evidence"));
+});
+
+/* ---------- Browse view, running beside the Annotate view in the same page ---------- */
+
+const qaExample = readFileSync(new URL("../examples/omnitalk-qa-example.jsonl", import.meta.url), "utf8");
+const qaBad = readFileSync(new URL("./fixtures/qa_bad_lines.jsonl", import.meta.url), "utf8");
+const fakeFile = (name, text, type = "") => ({ name, type, size: text.length, text: async () => text });
+const BROWSE_DATASETS = "omnitalk.browse.datasets.v1";
+async function browseImport(h, ...files) {
+  h.node("browse-import-file").files = files;
+  await h.node("browse-import-file").fire("change");
+  await h.flush();
+}
+const keydown = (h, key) => h.document.listeners.keydown.forEach((handler) => handler({
+  key, code: key === " " ? "Space" : `Key${key.toUpperCase()}`, target: { matches: () => false, closest: () => null }, preventDefault() {},
+}));
+
+test("Browse actions never write the Annotate view's storage, and switching views keeps both views' work", async () => {
+  const written = [];
+  const h = workspace([], { browse: true, beforeSetItem: (key) => written.push(key) });
+  h.api.addVideo("M7lc1UVf-VE");
+  h.fill("1", "5", "Saved clip", "A");
+  h.api.saveClip();
+  h.fill("6", "7", "Unfinished draft");
+  const annotateKeys = [...h.storage.keys()].filter((key) => key.startsWith("omnitalk.annotation."));
+  const before = new Map(annotateKeys.map((key) => [key, h.storage.get(key)]));
+  written.length = 0;
+
+  await h.node("view-browse").fire("click");
+  assert.equal(h.document.body.dataset.view, "browse");
+  await browseImport(h, fakeFile("example.jsonl", qaExample), fakeFile("bad.jsonl", qaBad));
+  assert.equal(h.browseAPI.state().datasets.length, 2);
+  assert.match(h.node("browse-import-report-text").textContent, /line 2 .*line 5/);
+  assert.match(h.node("browse-import-report-text").textContent, /blank line 3 skipped/);
+  assert.equal(h.node("browse-count").textContent, "4 questions");
+
+  // Switch datasets, edit, undo, revert and export.
+  const [example, bad] = h.browseAPI.state().datasets;
+  assert.equal(h.browseAPI.state().activeId, example.id);
+  h.node("browse-dataset").value = bad.id;
+  await h.node("browse-dataset").fire("change");
+  assert.equal(h.browseAPI.state().activeId, bad.id);
+  assert.match(h.node("browse-summary").textContent, /4 with errors/);
+  h.node("browse-dataset").value = example.id;
+  await h.node("browse-dataset").fire("change");
+  const question = h.node("browse-detail").querySelector('[data-key="question"]');
+  question.value = "Who orders the soup first?";
+  await question.fire("change");
+  const saved = JSON.parse(h.storage.get(BROWSE_DATASETS)).datasets[0].lines[0];
+  assert.match(saved.c, /"question": "Who orders the soup first\?"/);
+  assert.equal(saved.o, qaExample.split("\n")[0]);
+  assert.match(h.node("browse-summary").textContent, /1 edited line/);
+  await h.node("browse-undo").fire("click");
+  assert.equal(JSON.parse(h.storage.get(BROWSE_DATASETS)).datasets[0].lines[0].c, undefined);
+  await h.node("browse-export").fire("click");
+  const download = h.document.downloads.at(-1);
+  assert.equal(download.filename, "example.jsonl");
+  assert.equal(await h.blobs.get(download.url).text(), qaExample);
+
+  // A Drive mapping enables the Drive source for mapped clips.
+  h.node("browse-drive-file").files = [fakeFile("drive.json", JSON.stringify([{ title: "Demo-001.mp4", id: "1AbCdEfGhIjKlMnOpQrStUvWxYz012345" }, { title: "folder", id: "x" }]))];
+  await h.node("browse-drive-file").fire("change");
+  await h.flush();
+  assert.equal(h.browseAPI.state().drive.map["Demo-001"], "1AbCdEfGhIjKlMnOpQrStUvWxYz012345");
+  const stage = h.node("browse-video").querySelector(".browse-stage");
+  assert.equal(stage.children[0].src, "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/preview");
+
+  // Remove a dataset.
+  const removing = h.node("browse-remove-dataset").fire("click");
+  await h.flush();
+  assert.equal(h.node("browse-confirm").open, true);
+  await h.node("browse-confirm-accept").fire("click");
+  await removing;
+  assert.deepEqual(Array.from(h.browseAPI.state().datasets, (item) => item.name), ["bad.jsonl"]);
+
+  assert.ok(written.length > 0);
+  assert.deepEqual([...new Set(written)].filter((key) => !key.startsWith("omnitalk.browse.")), []);
+  for (const [key, value] of before) assert.equal(h.storage.get(key), value, key);
+
+  await h.node("view-annotate").fire("click");
+  assert.equal(h.document.body.dataset.view, "annotate");
+  assert.equal(h.node("clip-note").value, "Unfinished draft");
+  assert.equal(h.api.state().project.videos[0].clips.length, 1);
+});
+
+test("Annotate shortcuts do nothing while Browse is shown, and leaving Annotate pauses its player", async () => {
+  const h = workspace([], { browse: true });
+  h.api.addVideo("M7lc1UVf-VE");
+  h.resolveAPI();
+  await h.flush();
+  h.instances[0].ready();
+  h.instances[0].time = 12;
+  keydown(h, "i");
+  assert.equal(h.node("clip-start").value, "00:12.000");
+  h.node("clip-start").value = "";
+  await h.node("view-browse").fire("click");
+  assert.equal(h.instances[0].paused, true);
+  keydown(h, "i");
+  assert.equal(h.node("clip-start").value, "", "I does not mark a start while Browse is shown");
+  await h.node("view-annotate").fire("click");
+  keydown(h, "o");
+  assert.equal(h.node("clip-end").value, "00:12.000");
+});
+
+test("Browse restores its files, edits and view from its own keys after a reload", async () => {
+  const first = workspace([], { browse: true });
+  await first.node("view-browse").fire("click");
+  await browseImport(first, fakeFile("example.jsonl", qaExample));
+  const choice = first.node("browse-detail").querySelector('[data-key="choice:A"]');
+  choice.value = "Le monsieur au manteau gris";
+  await choice.fire("change");
+  const reloaded = workspace([...first.storage], { browse: true });
+  assert.equal(reloaded.document.body.dataset.view, "browse");
+  const [dataset] = reloaded.browseAPI.state().datasets;
+  assert.equal(dataset.lines[0].data.choices.A, "Le monsieur au manteau gris");
+  assert.ok(jsonl.isEdited(dataset.lines[0]));
+  assert.equal(jsonl.exportJsonl(dataset).split("\n").slice(1).join("\n"), qaExample.split("\n").slice(1).join("\n"));
+  // Annotate opens as usual with its own (empty) project.
+  assert.equal(reloaded.api.state().project.videos.length, 0);
+});
+
+test("Browse edits stay on the shown line when a filter stops matching it, and filters do not reload the player", async () => {
+  const h = workspace([], { browse: true });
+  await h.node("view-browse").fire("click");
+  await browseImport(h, fakeFile("bad.jsonl", qaBad));
+  h.node("browse-status").value = "errors";
+  await h.node("browse-status").fire("change");
+  await h.node("browse-list").querySelector('[data-index="0"]').fire("click");
+  // Line 1 only has the duplicate question_id error; fixing it makes the line stop matching "With errors".
+  const id = h.node("browse-detail").querySelector('[data-key="question_id"]');
+  id.value = "Demo-001_Q9";
+  await id.fire("change");
+  const question = h.node("browse-detail").querySelector('[data-key="question"]');
+  question.value = "Edited after the fix";
+  await question.fire("change");
+  const lines = JSON.parse(h.storage.get(BROWSE_DATASETS)).datasets[0].lines;
+  assert.match(lines[0].c, /"question_id": "Demo-001_Q9".*"question": "Edited after the fix"/);
+  assert.equal(lines[2].c, undefined, "the next matching line is untouched");
+  assert.ok(h.node("browse-list").querySelector('[data-index="0"]'), "the edited line stays listed while selected");
+  h.node("browse-status").value = "";
+  await h.node("browse-status").fire("change");
+  const frame = h.node("browse-video").querySelector(".browse-stage").children[0];
+  h.node("browse-search").value = "Demo";
+  await h.node("browse-search").fire("input");
+  // Compare identity with ok(): a failing equal() on these DOM doubles would try to print their whole cyclic tree.
+  assert.ok(h.node("browse-video").querySelector(".browse-stage").children[0] === frame, "typing a search that still matches keeps the player");
+  h.node("browse-search").value = "Demo-003";
+  await h.node("browse-search").fire("input");
+  assert.equal(h.browseAPI.state().datasets[0].lines[2].data.video_clip_id, "Demo-003");
+  assert.match(h.node("browse-detail").textContent, /LINE 4 OF/, "a search that excludes the selected line moves to the first match");
+});
+
+test("Browse keeps warning about QA edits that could not be saved, even after a preference is saved", async () => {
+  const h = workspace([], { browse: true });
+  await h.node("view-browse").fire("click");
+  await browseImport(h, fakeFile("example.jsonl", qaExample));
+  const set = h.storage.set.bind(h.storage);
+  h.storage.set = (key, value) => { if (key === BROWSE_DATASETS) throw new Error("quota"); return set(key, value); };
+  const choice = h.node("browse-detail").querySelector('[data-key="choice:A"]');
+  choice.value = "Edited while storage is full";
+  await choice.fire("change");
+  assert.ok(h.browseAPI.state().datasetsUnsaved, "the failed save is remembered");
+  assert.equal(h.browseAPI.state().storageBlocked, false, "this is not the cross-tab lock");
+  assert.equal(h.node("browse-storage-warning").hidden, false);
+  h.node("browse-hide-answers").checked = true;
+  await h.node("browse-hide-answers").fire("change");
+  assert.ok(h.storage.get("omnitalk.browse.prefs.v1").includes('"hide_answers":true'), "the preference itself was saved");
+  assert.equal(h.node("browse-storage-warning").hidden, false, "saving a preference does not hide the warning");
+  assert.ok(h.browseAPI.state().datasetsUnsaved);
+  h.storage.set = set;
+  const again = h.node("browse-detail").querySelector('[data-key="choice:B"]');
+  again.value = "Edited after space came back";
+  await again.fire("change");
+  assert.equal(h.browseAPI.state().datasetsUnsaved, "", "a later successful save clears it");
+  assert.equal(h.node("browse-storage-warning").hidden, true);
+  assert.match(JSON.parse(h.storage.get(BROWSE_DATASETS)).datasets[0].lines[0].c, /Edited while storage is full.*Edited after space came back/);
+});
+
+test("Browse shows the video again after switching between the field form and the line text", async () => {
+  const h = workspace([], { browse: true });
+  await h.node("view-browse").fire("click");
+  await browseImport(h, fakeFile("example.jsonl", qaExample));
+  assert.ok(h.node("browse-video").querySelector(".browse-stage"), "the player is there to begin with");
+  const toggle = () => h.node("browse-detail").querySelector(".browse-detail-actions").children.find((node) => /Edit (line text|fields)/.test(node.textContent));
+  await toggle().fire("click");
+  assert.equal(toggle().textContent, "Edit fields");
+  assert.ok(h.node("browse-video").querySelector(".browse-stage"), "the player is rebuilt in line-text mode");
+  await toggle().fire("click");
+  assert.equal(toggle().textContent, "Edit line text");
+  assert.ok(h.node("browse-video").querySelector(".browse-stage"), "and again back in the field form");
 });

@@ -1441,6 +1441,7 @@ $("close-help").addEventListener("click", () => $("help-dialog").close());
 
 document.addEventListener("keydown", (event) => {
   if (event.isComposing || event.repeat || document.querySelector("dialog[open]")) return;
+  if (document.body.dataset.view === "browse") return; // annotation shortcuts only act on the visible Annotate view
   const typing = event.target.matches("input, textarea, select, [contenteditable=true]");
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
     if (!typing || $("clip-form").contains(event.target)) { event.preventDefault(); saveClip(); }
@@ -1459,6 +1460,10 @@ window.addEventListener("storage", (event) => {
     memoryNeedsBackup = true;
     storageWarning("Another tab changed the local data. Autosave is paused. Export your annotations, then reload to avoid overwriting each other.");
   }
+});
+// The Browse view (browse.js) announces view switches; leaving Annotate pauses its player and changes nothing else.
+window.addEventListener("omnitalk-view", (event) => {
+  if (event.detail === "browse" && playerReady) { try { player.pauseVideo(); } catch { /* The player may be gone. */ } }
 });
 window.addEventListener("beforeunload", (event) => {
   if (memoryNeedsBackup) { event.preventDefault(); event.returnValue = ""; }
