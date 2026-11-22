@@ -145,3 +145,11 @@ test("JSONL_FORMAT.md matches the spec the validator and Format tab use", () => 
   assert.deepEqual(j.SCENARIO_NAMES, Object.values(SCENARIOS));
   assert.equal(j.SCENARIO_NAMES.length, 12);
 });
+
+test("re-lettering choices keeps their order and moves the answer with its choice", () => {
+  const data = { choices: { A: "Left", C: "Right", D: "Up" }, correct_answer: "D" };
+  assert.ok(!j.choicesInOrder(data.choices));
+  j.reletterChoices(data);
+  assert.deepEqual(data, { choices: { A: "Left", B: "Right", C: "Up" }, correct_answer: "C" });
+  assert.ok(j.choicesInOrder(data.choices));
+});

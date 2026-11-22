@@ -349,6 +349,15 @@ export function removeChoice(data, key) {
   else if (answerIndex > removedIndex) data.correct_answer = letter(answerIndex - 1);
 }
 
+/** Rename choice keys to A, B, C… in their current order; the answer follows its choice. */
+export function reletterChoices(data) {
+  const keys = Object.keys(data.choices);
+  const answerIndex = keys.indexOf(data.correct_answer);
+  data.choices = Object.fromEntries(Object.values(data.choices).map((text, index) => [letter(index), text]));
+  if (answerIndex >= 0) data.correct_answer = letter(answerIndex);
+}
+export const choicesInOrder = (choices) => Object.keys(choices).every((key, index) => key === letter(index));
+
 export function addChoice(data) {
   const keys = Object.keys(data.choices);
   data.choices = { ...data.choices, [letter(keys.length)]: "" };
