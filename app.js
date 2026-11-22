@@ -2,7 +2,7 @@ import {
   STORAGE_KEY, LIMITS, createProject, createVideo, createClip, createQuestion, questionReadyError, MODALITIES,
   parseYouTubeUrl, parseTime, formatTime, validateProject,
   projectAnnotators, filterVideos, QUESTION_STATUS_FILTERS, videoRefIds, refIdConflicts,
-  createEvidence, cueModality, formatAnnotation, spansOutside,
+  createEvidence, cueModality, formatAnnotation, formatAnnotationRows, spansOutside, SCENARIOS, NO_SCENARIO, CUE_HELP, FUNCTION_SUGGESTIONS,
 } from "./core.js";
 import { initDownloads } from "./downloads.js";
 
@@ -15,7 +15,23 @@ const PROJECTS_KEY = "omnitalk.annotation.projects.v2"; // { version: 2, project
 const SIDEBAR_KEY = "omnitalk.annotation.sidebar.collapsed.v1";
 const draftFields = ["clip-ref", "clip-start", "clip-end", "clip-note", "clip-tags"];
 const draftKeys = ["ref", "start", "end", "note", "tags"];
-const emptyDraft = () => ({ ref: "", start: "", end: "", note: "", tags: "", editing_id: null });
+const emptyDraft = () => ({ ref: "", start: "", end: "", note: "", tags: "", scenarios: [], editing_id: null });
+/** The Doc's examples for each Scenario Category, shown as the chip's tooltip. */
+const SCENARIO_EXAMPLES = {
+  social_personal: "Casual conversations, dating, personal visits, bar conversations, farewells, family interactions, personal sharing, personal check-ins. Can serve as a fallback when no other label applies.",
+  everyday_problems: "Forgetting keys, losing belongings, plan cancellations, missing appointments, unexpected changes, dealing with unusual situations.",
+  food_dining: "Cooking, dining, food tasting, restaurant meals, cooking competitions.",
+  household_domestic: "Cleaning, home repair, house painting, household chores, moving.",
+  travel_navigation: "Travel preparation, navigation, public transportation, boarding, finding a location, sightseeing.",
+  education_training: "Tutoring, training, practicing, rehearsing, classroom activities.",
+  work_professional: "Meetings, workplace collaboration, job interviews, task coordination, professional discussions.",
+  entertainment_recreation_media: "Gaming, pranking, watching TV, filming, acting, outdoor recreation, performances, celebrations, festivals.",
+  health_wellbeing: "Medical consultations, therapy, caregiving, hospital visits, health discussions.",
+  public_service: "Shopping, ordering, customer service, ticket purchasing, public information seeking, asking strangers for help.",
+  institutional_formal: "Legal procedures, police questioning, court proceedings, government services, security screening, identity verification.",
+  safety_emergency: "Police–hostage situations, emergency assistance, accident response, threats, emergency evacuations.",
+};
+const scenarioLabels = (ids) => ids.map((id) => SCENARIOS[id]);
 const clock = (seconds) => formatTime(seconds, { milliseconds: true });
 let project = createProject();
 let shelf = []; // imported projects that are loaded but not currently open
@@ -41,7 +57,8 @@ let latestExport = null;
 let sidebarCollapsed = false;
 let annotationClipTime = false; // view preference for "Copy as text": source-video time or clip time
 // Library filters are a view preference only; they never change or hide saved annotations.
-const libraryFilter = { query: "", annotator: "", status: "" };
+const libraryFilter = { query: "", annotator: "", status: "", scenario: "" };
+let clipScenarios = []; // scenario categories selected in the clip form
 const storedValues = new Map();
 
 function setSidebarCollapsed(collapsed, persist = true) {
@@ -179,6 +196,8 @@ function validDrafts(item, saved) {
         // Drafts saved before reference IDs existed have no ref.
         ref: typeof draft.ref === "string" && draft.ref.length <= 100 ? draft.ref : "",
         start: draft.start, end: draft.end, note: draft.note, tags: draft.tags,
+        // Drafts saved before scenario categories existed have none.
+        scenarios: Array.isArray(draft.scenarios) ? Object.keys(SCENARIOS).filter((id) => draft.scenarios.includes(id)) : [],
         editing_id: video.clips.some((clip) => clip.id === draft.editing_id) ? draft.editing_id : null,
       };
     }
@@ -259,13 +278,13 @@ const currentVideo = () => project.videos.find((video) => video.id === activeId)
 const knownDuration = () => mediaDuration || currentVideo()?.duration_seconds || null;
 
 function currentDraft() {
-  return { ref: $("clip-ref").value, start: $("clip-start").value, end: $("clip-end").value, note: $("clip-note").value, tags: $("clip-tags").value, editing_id: editingId };
+  return { ref: $("clip-ref").value, start: $("clip-start").value, end: $("clip-end").value, note: $("clip-note").value, tags: $("clip-tags").value, scenarios: [...clipScenarios], editing_id: editingId };
 }
 
 function rememberDraft(persist = true) {
   if (!activeId) return;
   const draft = currentDraft();
-  if (draft.editing_id || draftKeys.some((key) => draft[key])) drafts[activeId] = draft;
+  if (draft.editing_id || draftKeys.some((key) => draft[key]) || draft.scenarios.length) drafts[activeId] = draft;
   else delete drafts[activeId];
   if (persist) persistWorkspace();
 }
@@ -274,6 +293,7 @@ function restoreDraft() {
   const draft = drafts[activeId] || emptyDraft();
   editingId = draft.editing_id;
   draftFields.forEach((id, index) => { $(id).value = draft[draftKeys[index]] ?? ""; });
+  setClipScenarios(draft.scenarios ?? []);
   $("editor-title").textContent = editingId ? "Edit clip" : "New clip";
   $("save-clip-label").textContent = editingId ? "Save changes" : "Add clip";
   $("cancel-edit").hidden = !editingId;
@@ -287,6 +307,30 @@ function resetDraft() {
   persistWorkspace();
 }
 
+/** Show the clip form's scenario selection; chips stay in the Doc's table order. */
+function setClipScenarios(ids) {
+  clipScenarios = Object.keys(SCENARIOS).filter((id) => ids.includes(id));
+  for (const chip of $("clip-scenarios").children) chip.setAttribute("aria-pressed", String(clipScenarios.includes(chip.dataset.scenario)));
+}
+
+function renderScenarioChips() {
+  $("clip-scenarios").replaceChildren(...Object.entries(SCENARIOS).map(([id, label]) => {
+    const chip = el("button", "scenario-chip", label);
+    chip.type = "button";
+    chip.dataset.scenario = id;
+    chip.title = SCENARIO_EXAMPLES[id];
+    chip.setAttribute("aria-pressed", "false");
+    chip.addEventListener("click", () => {
+      setClipScenarios(clipScenarios.includes(id) ? clipScenarios.filter((item) => item !== id) : [...clipScenarios, id]);
+      rememberDraft();
+      fieldError("clip-error");
+    });
+    return chip;
+  }));
+}
+
+const sameScenarios = (a = [], b = []) => [...a].sort().join() === [...b].sort().join();
+
 function splitTags(value) {
   return [...new Set(value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean))];
 }
@@ -294,9 +338,9 @@ function splitTags(value) {
 function isDirtyDraft(draft, video) {
   if (!draft) return false;
   const clip = video.clips.find((item) => item.id === draft.editing_id);
-  if (!clip) return draftKeys.some((key) => draft[key]);
+  if (!clip) return draftKeys.some((key) => draft[key]) || !!draft.scenarios?.length;
   try {
-    return (draft.ref ?? "").trim() !== clip.ref_id || parseTime(draft.start) !== clip.start_seconds || parseTime(draft.end) !== clip.end_seconds || draft.note !== clip.note || JSON.stringify(splitTags(draft.tags)) !== JSON.stringify(clip.tags);
+    return (draft.ref ?? "").trim() !== clip.ref_id || !sameScenarios(draft.scenarios, clip.scenarios) || parseTime(draft.start) !== clip.start_seconds || parseTime(draft.end) !== clip.end_seconds || draft.note !== clip.note || JSON.stringify(splitTags(draft.tags)) !== JSON.stringify(clip.tags);
   } catch { return true; }
 }
 
@@ -333,7 +377,8 @@ function renderLibraryFilters() {
   const option = (value, label) => { const node = el("option", "", label); node.value = value; return node; };
   $("library-annotator").replaceChildren(option("", "All annotators"), ...annotators.map((item) => option(item.key, item.label || "Unattributed")));
   $("library-status").replaceChildren(option("", "Any question status"), ...Object.entries(QUESTION_STATUS_FILTERS).map(([value, label]) => option(value, label)));
-  for (const key of ["annotator", "status"]) $(`library-${key}`).value = libraryFilter[key];
+  $("library-scenario").replaceChildren(option("", "Any scenario"), ...Object.entries(SCENARIOS).map(([value, label]) => option(value, label)), option(NO_SCENARIO, "Clips without a scenario"));
+  for (const key of ["annotator", "status", "scenario"]) $(`library-${key}`).value = libraryFilter[key];
   $("library-filters").hidden = !project.videos.length;
 }
 
@@ -409,7 +454,7 @@ function renderClips() {
     ? `Clips for ${video.title || video.video_id}, sorted by start time.`
     : "Load a video, then add clips to this list.";
   const query = $("clips-search").value.trim().toLocaleLowerCase();
-  const clips = allClips.filter((clip) => `${clip.ref_id} ${clip.note} ${clip.tags.join(" ")} ${(clip.questions || []).map(q => q.prompt).join(" ")}`.toLocaleLowerCase().includes(query));
+  const clips = allClips.filter((clip) => `${clip.ref_id} ${clip.note} ${clip.tags.join(" ")} ${scenarioLabels(clip.scenarios).join(" ")} ${(clip.questions || []).map(q => q.prompt).join(" ")}`.toLocaleLowerCase().includes(query));
   $("clip-count").textContent = allClips.length;
   $("clips-empty").hidden = allClips.length > 0;
   $("clips-table-container").hidden = !clips.length;
@@ -440,6 +485,7 @@ function renderClips() {
     qaButton.addEventListener("click", () => { qaClipId = clip.id; qaQuestionId = null; setQACollapsed(false); renderQA(); $("qa-panel").scrollIntoView({ behavior: "smooth", block: "start" }); });
     noteCell.append(qaButton);
     const tagCell = el("td");
+    tagCell.append(...scenarioLabels(clip.scenarios).map((label) => { const item = el("span", "clip-scenario", label); item.title = `Scenario: ${label}`; return item; }));
     const tags = el("div", "tag-list");
     tags.append(...clip.tags.map((tag) => { const item = el("span", "clip-tag", tag); item.title = tag; return item; }));
     tagCell.append(tags);
@@ -786,7 +832,7 @@ function draftClip() {
   return createClip({
     ref_id: $("clip-ref").value,
     start_seconds: parseTime($("clip-start").value), end_seconds: parseTime($("clip-end").value),
-    note: $("clip-note").value, tags: splitTags($("clip-tags").value),
+    note: $("clip-note").value, tags: splitTags($("clip-tags").value), scenarios: clipScenarios,
   }, knownDuration(), project.annotator);
 }
 
@@ -857,7 +903,7 @@ async function editClip(clip) {
   const video = currentVideo();
   if (isDirtyDraft(currentDraft(), video) && !await confirmAction("Edit this clip?", "This will replace the unfinished draft in the editor. Your saved clips will not change.", "Start editing")) return;
   qaClipId = clip.id;
-  drafts[activeId] = { ref: clip.ref_id, start: clock(clip.start_seconds), end: clock(clip.end_seconds), note: clip.note, tags: clip.tags.join(", "), editing_id: clip.id };
+  drafts[activeId] = { ref: clip.ref_id, start: clock(clip.start_seconds), end: clock(clip.end_seconds), note: clip.note, tags: clip.tags.join(", "), scenarios: [...clip.scenarios], editing_id: clip.id };
   restoreDraft();
   persistWorkspace();
   renderClips();
@@ -1093,7 +1139,7 @@ function renderQA() {
   const clip = qaClip();
   $("qa-add").disabled = !clip || clip.questions.length >= 100;
   $("qa-content").hidden = !clip;
-  $("qa-context").textContent = clip ? `${clip.ref_id ? `${clip.ref_id} · ` : ""}${clock(clip.start_seconds)} – ${clock(clip.end_seconds)} · ${clip.questions.length} ${clip.questions.length === 1 ? "question" : "questions"}` : "Save a clip, then design its questions here.";
+  $("qa-context").textContent = clip ? `${clip.ref_id ? `${clip.ref_id} · ` : ""}${clock(clip.start_seconds)} – ${clock(clip.end_seconds)}${clip.scenarios.length ? ` · ${scenarioLabels(clip.scenarios).join("; ")}` : ""} · ${clip.questions.length} ${clip.questions.length === 1 ? "question" : "questions"}` : "Save a clip, then design its questions here.";
   $("qa-clip-select").replaceChildren(...clips.map((c, i) => { const o = el("option", "", `${c.ref_id || `Clip ${i + 1}`} · ${clock(c.start_seconds)} – ${clock(c.end_seconds)}`); o.value = c.id; return o; }));
   $("qa-copy-ref").hidden = !clip?.ref_id;
   $("qa-copy-ref").textContent = clip?.ref_id ?? "";
@@ -1129,7 +1175,8 @@ function renderEvidenceEditor(q, clip) {
   add.dataset.focusKey = "add-evidence";
   add.disabled = q.annotations.length >= LIMITS.evidencePerQuestion;
   heading.append(el("strong", "", "Annotation · evidence with time spans"), add);
-  box.append(heading, el("p", "qa-help", "One line per piece of evidence needed for the answer: what is said or seen, when, and for non-speech evidence its function in the communication. Times are in the original video; spans may be non-contiguous."));
+  box.append(heading, el("p", "qa-help", "One line per piece of evidence needed for the answer: what is said or seen, when, and for non-speech evidence its function in the communication. Times are in the original video; spans may be non-contiguous."),
+    el("p", "qa-help", "Write the function at a more abstract, generalizable level than the evidence description: what the signal does in the interaction (e.g. Indicates an object referent), not how it fits this dialogue."));
   const cueOptions = Object.entries(MODALITIES).flatMap(([, group]) => Object.entries(group.cues).map(([cue, label]) => [cue, `${group.label} · ${label}`]));
   for (const [i, e] of q.annotations.entries()) {
     const card = el("div", "qa-evidence");
@@ -1137,7 +1184,7 @@ function renderEvidenceEditor(q, clip) {
     const fail = (message) => { error.textContent = message; error.hidden = false; };
     const top = el("div", "qa-evidence-top");
     const select = el("select"); select.setAttribute("aria-label", `Evidence ${i + 1} cue`);
-    for (const [cue, label] of cueOptions) { const o = el("option", "", label); o.value = cue; select.append(o); }
+    for (const [cue, label] of cueOptions) { const o = el("option", "", label); o.value = cue; o.title = CUE_HELP[cue]; select.append(o); }
     select.value = e.cue; select.dataset.focusKey = `cue-${e.id}`;
     select.addEventListener("change", () => { e.cue = select.value; ensureCue(q, e.cue); qaSave(q); renderQAEditor(); });
     const remove = qaButton("×", () => { q.annotations = q.annotations.filter(item => item.id !== e.id); qaSave(q); renderQAEditor("add-evidence"); }, "qa-remove");
@@ -1200,10 +1247,22 @@ function renderEvidenceEditor(q, clip) {
     card.append(addSpan);
     if (e.cue !== "speech_content" || e.function) {
       const fn = el("textarea"); fn.rows = 1; fn.maxLength = 2000; fn.value = e.function;
-      fn.placeholder = "Function in the communication, e.g. identifies who “this one” refers to";
+      fn.placeholder = "Function in the communication, e.g. Indicates an object referent";
       fn.setAttribute("aria-label", `Evidence ${i + 1} function`);
       fn.addEventListener("input", () => { resizeQATextarea(fn); e.function = fn.value; qaSave(q); });
-      card.append(fn);
+      // The Doc's abstract categories; picking one inserts its text, which stays free to edit.
+      const pick = el("select", "qa-function-pick"); pick.setAttribute("aria-label", `Evidence ${i + 1} function category`);
+      pick.append(el("option", "", "Insert a function category…"));
+      pick.children[0].value = "";
+      for (const [label, help] of FUNCTION_SUGGESTIONS) { const o = el("option", "", label); o.value = label; o.title = help; pick.append(o); }
+      pick.addEventListener("change", () => {
+        if (!pick.value) return;
+        const insert = pick.value.replace(/ …$/, " ");
+        fn.value = fn.value.trim() ? `${fn.value.trimEnd()}; ${insert}` : insert;
+        pick.value = "";
+        resizeQATextarea(fn); e.function = fn.value; qaSave(q); fn.focus();
+      });
+      card.append(fn, pick);
     }
     card.append(error);
     box.append(card);
@@ -1214,7 +1273,11 @@ function renderEvidenceEditor(q, clip) {
     for (const [value, label] of [["source", "Original video time"], ["clip", "Clip time (00:00 = clip start)"]]) { const o = el("option", "", label); o.value = value; base.append(o); }
     base.value = annotationClipTime ? "clip" : "source";
     base.addEventListener("change", () => { annotationClipTime = base.value === "clip"; });
-    tools.append(qaButton("Copy as team text", () => copyText(formatAnnotation(q, clip, { clipTime: annotationClipTime }))), base);
+    const rowsCopy = qaButton("Copy as team text", () => copyText(formatAnnotationRows(q, clip, { clipTime: annotationClipTime })));
+    rowsCopy.title = "Annotation rows as in the team Doc: [MM:SS.mmm–MM:SS.mmm] (label): description, then the Function and Scenario Category lines";
+    const spanCopy = qaButton("Copy in time_span format", () => copyText(formatAnnotation(q, clip, { clipTime: annotationClipTime })), "text-button");
+    spanCopy.title = "Older format: (label): description [time_span: MM:SS ~ MM:SS], in whole seconds";
+    tools.append(rowsCopy, base, spanCopy);
     box.append(tools);
   }
   return box;
@@ -1276,11 +1339,13 @@ function renderQAEditor(focusKey = document.activeElement?.dataset?.focusKey) {
         if (selected && q.annotations.some(e => e.cue === cue)) return showToast(`${label} is used by an evidence line below. Change or remove that line first.`, true);
         q.evidence_cues = selected ? q.evidence_cues.filter(c => c !== cue) : [...q.evidence_cues, cue]; qaSave(q); renderQAEditor();
       }, "qa-chip small");
+      button.title = CUE_HELP[cue];
       button.setAttribute("aria-pressed", String(selected)); cues.append(button);
     }
     evidence.append(cues);
+    if (key === "visual") evidence.append(el("p", "qa-help", "Action: intentional, goal-directed behavior. Event: a change that need not be intentional. Body Gesture: communicative, does not change the physical world. Scene: the whole setting; Object: one thing in it. Gaze includes closely related head movement."));
   }
-  if (q.required_modalities.includes("text")) evidence.append(el("p", "qa-help", "Subtitles are a requirement only if the answer needs them. Scene text includes signs, notes and phone screens."));
+  if (q.required_modalities.includes("text")) evidence.append(el("p", "qa-help", "Written language covers phone messages, notes and signs, not transcription; the Doc lists it with the Visual signals. Subtitles are a requirement only if the answer needs them."));
   evidence.append(renderEvidenceEditor(q, clip));
   evidence.append(field("Why are these needed? · Optional", "rationale", 20000, 2));
   const error = el("p", "field-error"); error.setAttribute("role", "alert");
@@ -1331,12 +1396,12 @@ $("cancel-edit").addEventListener("click", async () => {
 });
 $("clips-search").addEventListener("input", renderClips);
 function clearLibraryFilters(render = true) {
-  Object.assign(libraryFilter, { query: "", annotator: "", status: "" });
+  Object.assign(libraryFilter, { query: "", annotator: "", status: "", scenario: "" });
   $("library-search").value = "";
   if (render) renderVideos();
 }
 $("library-search").addEventListener("input", () => { libraryFilter.query = $("library-search").value; renderVideos(); });
-for (const key of ["annotator", "status"]) $(`library-${key}`).addEventListener("change", () => { libraryFilter[key] = $(`library-${key}`).value; renderVideos(); });
+for (const key of ["annotator", "status", "scenario"]) $(`library-${key}`).addEventListener("change", () => { libraryFilter[key] = $(`library-${key}`).value; renderVideos(); });
 $("clear-library-filters").addEventListener("click", () => clearLibraryFilters());
 $("download-all-clips").addEventListener("click", () => downloadUI?.openAll());
 $("project-name").addEventListener("input", () => { project.project_name = $("project-name").value; persistProject(); renderProjectPicker(); });
@@ -1376,6 +1441,7 @@ $("close-help").addEventListener("click", () => $("help-dialog").close());
 
 document.addEventListener("keydown", (event) => {
   if (event.isComposing || event.repeat || document.querySelector("dialog[open]")) return;
+  if (document.body.dataset.view === "browse") return; // annotation shortcuts only act on the visible Annotate view
   const typing = event.target.matches("input, textarea, select, [contenteditable=true]");
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
     if (!typing || $("clip-form").contains(event.target)) { event.preventDefault(); saveClip(); }
@@ -1395,11 +1461,16 @@ window.addEventListener("storage", (event) => {
     storageWarning("Another tab changed the local data. Autosave is paused. Export your annotations, then reload to avoid overwriting each other.");
   }
 });
+// The Browse view (browse.js) announces view switches; leaving Annotate pauses its player and changes nothing else.
+window.addEventListener("omnitalk-view", (event) => {
+  if (event.detail === "browse" && playerReady) { try { player.pauseVideo(); } catch { /* The player may be gone. */ } }
+});
 window.addEventListener("beforeunload", (event) => {
   if (memoryNeedsBackup) { event.preventDefault(); event.returnValue = ""; }
 });
 
 restoreSidebarPreference();
+renderScenarioChips();
 restoreStorage();
 if (isStaticMode) {
   $("browser-demo-notice").hidden = false;
