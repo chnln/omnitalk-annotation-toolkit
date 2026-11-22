@@ -1,0 +1,5 @@
+{"video_clip_id": "Demo-001", "url": "https://www.youtube.com/watch?v=M7lc1UVf-VE", "start_time": "00:00:10.000", "end_time": "00:00:44.000", "duration": 34.0, "question_id": "Demo-001_Q1", "scenario": ["Food & Dining"], "question": "Which person orders the soup?", "choices": {"A": "The man", "B": "The woman", "C": "The waiter", "D": "Nobody"}, "correct_answer": "B"}
+{"video_clip_id": "Demo-002", "url": "https://www.youtube.com/watch?v=M7lc1UVf-VE", "start_time": "00:01:05.250", "end_time": "00:01:31.550", "duration": 26.3, "question_id": "Demo-002_Q1", "scenario": ["Education & Training"], "question": "Unfinished line", "choices": {"A": "x"
+
+{"video_clip_id": "Demo-003", "url": "https://youtu.be/M7lc1UVf-VE", "start_time": "0:02:00", "end_time": "00:01:00.000", "duration": 25, "question_id": "Demo-001_Q1", "scenario": ["Cooking"], "question": "", "choices": {"A": "Left", "C": "Left"}, "correct_answer": "E"}
+[1, 2, 3]
